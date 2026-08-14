@@ -1083,6 +1083,430 @@ function showAgreementForm(contract, zone, owner){
     saveAgreement(contract,zone,owner||'',t,d,n);
   };
 }
+
+// ── RENDER 3PL ──
+function render3PL(){
+  if(!tplRows.length){
+    Promise.all([fetch3PL(), fetchTarget(), fetchAgreements()]).then(function(results){
+      tplRows=results[0]; targetRows=results[1]; agreeRows=results[2]; render3PLBody();
+    }).catch(function(e){
+      document.getElementById('tpl-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+e.message+'</div>';
+    });
+    return;
+  }
+  if(!targetRows.length){
+    fetchTarget().then(function(t){targetRows=t;render3PLBody();}).catch(function(){render3PLBody();});
+    return;
+  }
+  render3PLBody();
+}
+
+function render3PLBody(){
+  const range=get3PLRange();
+  const curMonth=new Date().getMonth()+1;
+  const data=agg3PL(tplRows,range);
+  const today2=new Date().toISOString().slice(0,10);
+
+  const totRiders=data.reduce((a,c)=>a+c.riders,0);
+  const avgAccept=data.length?data.reduce((a,c)=>a+c.accept,0)/data.length:0;
+  const avgLate=data.length?data.reduce((a,c)=>a+c.lateLogin,0)/data.length:0;
+  const totWH=data.reduce((a,c)=>a+c.workHrs,0);
+  const avgNoShow=data.length?data.reduce((a,c)=>a+c.noShow,0)/data.length:0;
+  const avgAtt=data.length?data.reduce((a,c)=>a+c.attendance,0)/data.length:0;
+
+  function tag(v,c){return '<span class="tag '+c+'">'+v+'</span>';}
+
+  const kpisHTML='<div class="kpi-grid" style="margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl">Total Riders</div><div class="kpi-val">'+Math.round(totRiders).toLocaleString()+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Avg Acceptance</div><div class="kpi-val '+(avgAccept>=0.95?'g':avgAccept>=0.90?'w':'r')+'">'+pct(avgAccept)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Avg Late Login</div><div class="kpi-val '+(avgLate<=0.05?'g':avgLate<=0.10?'w':'r')+'">'+pct(avgLate)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Total Work Hrs</div><div class="kpi-val">'+Math.round(totWH).toLocaleString()+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Avg No Show</div><div class="kpi-val '+(avgNoShow<=0.05?'g':avgNoShow<=0.10?'w':'r')+'">'+pct(avgNoShow)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Avg Attendance</div><div class="kpi-val '+(avgAtt>=0.90?'g':avgAtt>=0.80?'w':'r')+'">'+pct(avgAtt)+'</div></div>'
+    +'</div>';
+
+  function btn(label,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+label+'</button>';}
+  function zbtn(label,active,oc){return '<button class="ztab '+(active?'active':'')+'" onclick="'+oc+'">'+label+'</button>';}
+
+  const controlsHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +zbtn('Alex + Agamy',tplZone==='both',"tplZone='both';render3PLBody()")
+    +zbtn('Alexandria',tplZone==='alex',"tplZone='alex';render3PLBody()")
+    +zbtn('Agamy',tplZone==='agamy',"tplZone='agamy';render3PLBody()")
+    +'</div>'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +btn('Yesterday',tplPeriod==='day',"tplPeriod='day';render3PLBody()")
+    +btn('This Week',tplPeriod==='week',"tplPeriod='week';render3PLBody()")
+    +btn('This Month',tplPeriod==='month',"tplPeriod='month';render3PLBody()")
+    +'</div>'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +btn('By Contract',tplView==='contract',"tplView='contract';render3PLBody()")
+    +btn('By Owner',tplView==='owner',"tplView='owner';render3PLBody()")
+    +btn('Agreements',tplView==='agreements',"tplView='agreements';render3PLBody()")
+    +'</div>'
+    +'<span style="font-size:11px;color:var(--muted)">'+range.label+' &middot; '+data.length+' contracts</span>'
+    +'</div>';
+
+  const contractRows=data.map(function(c){
+    const target=getTargetForContract(c.contract,c.zone,curMonth);
+    const achv=target&&target>0?(c.workHrs/target):null;
+    const achvCls=achv===null?'':achv>=0.90?'g':achv>=0.85?'w':'r';
+    const accCls=c.accept>=0.95?'g':c.accept>=0.90?'w':'r';
+    const lateCls=c.lateLogin<=0.05?'g':c.lateLogin<=0.10?'w':'r';
+    const nsoCls=c.noShow<=0.05?'g':c.noShow<=0.10?'w':'r';
+    const attCls=c.attendance>=0.90?'g':c.attendance>=0.80?'w':'r';
+    const persons=getOwnerForContract(c.contract,c.zone);
+    const ownerHtml=persons?'<div style="font-size:11px;font-weight:500">'+(persons.owner||'-')+'</div><div style="font-size:10px;color:var(--muted)">'+(persons.acq||'-')+'</div>':'—';
+    const alert=checkAgreementAlert(c.contract,c.zone,achv||0);
+    const agreeCount=getAgreementsForContract(c.contract,c.zone).length;
+    const ownerArg=(persons&&persons.owner)?persons.owner.replace(/'/g,''):'';
+    return '<tr>'
+      +'<td><strong>'+c.contract+'</strong><div style="font-size:10px;color:var(--muted)">'+c.zone+'</div></td>'
+      +'<td style="font-weight:600">'+c.riders+'</td>'
+      +'<td>'+tag(pct(c.accept),accCls)+'</td>'
+      +'<td>'+tag(pct(c.lateLogin),lateCls)+'</td>'
+      +'<td>'+Math.round(c.workHrs).toLocaleString()+'</td>'
+      +'<td>'+(target?Math.round(target).toLocaleString():'—')+'</td>'
+      +'<td>'+(achv!==null?tag((achv*100).toFixed(1)+'%',achvCls):'—')+(alert?'<span style="font-size:9px;background:#fee2e2;color:#dc2626;padding:2px 5px;border-radius:4px;margin-left:4px">⚠ Due</span>':'')+'</td>'
+      +'<td>'+tag(pct(c.noShow),nsoCls)+'</td>'
+      +'<td>'+tag(pct(c.attendance),attCls)+'</td>'
+      +'<td>'+ownerHtml+'</td>'
+      +'<td><button onclick="showAgreementForm(this.dataset.c,this.dataset.z,this.dataset.o)" data-c="'+c.contract+'" data-z="'+c.zone+'" data-o="'+ownerArg+'" style="font-size:10px;padding:3px 8px;background:var(--orangelight);border:1px solid var(--orange);color:var(--orange);border-radius:5px;cursor:pointer">📝 Add</button>'+(agreeCount?'<span style="font-size:9px;color:var(--muted);display:block;margin-top:2px">'+agreeCount+' agreement(s)</span>':'')+'</td>'
+      +'</tr>';
+  }).join('');
+
+  const contractTH='<tr><th>Contract</th><th>Riders</th><th>Acceptance</th><th>Late Login</th><th>Actual WH</th><th>Target WH</th><th>Achievement</th><th>No Show</th><th>Attendance</th><th>Owner / Acq</th><th>Agreement</th></tr>';
+  const contractTableHTML='<div class="card"><div class="card-hd">Contract Performance <span class="card-sub">'+range.label+'</span></div>'
+    +'<div class="tbl-wrap"><table><thead>'+contractTH+'</thead><tbody>'
+    +(contractRows||'<tr><td colspan="11" style="text-align:center;color:var(--muted);padding:24px">No data</td></tr>')
+    +'</tbody></table></div></div>';
+
+  const ownerMap={};
+  data.forEach(function(c){
+    const p=getOwnerForContract(c.contract,c.zone);
+    const ok=p&&p.owner?p.owner:'Unassigned';
+    if(!ownerMap[ok]) ownerMap[ok]={owner:ok,ownerEmail:p?p.ownerEmail||'':'',contracts:[],totalActual:0,totalTarget:0,riders:0};
+    const o=ownerMap[ok];
+    o.contracts.push(c);
+    o.totalActual+=c.workHrs;
+    const tgt=getTargetForContract(c.contract,c.zone,curMonth);
+    o.totalTarget+=tgt||0;
+    o.riders+=c.riders;
+  });
+
+  const ownerRows=Object.values(ownerMap).map(function(o){
+    const achv=o.totalTarget>0?o.totalActual/o.totalTarget:null;
+    const achvCls=achv===null?'':achv>=0.90?'g':achv>=0.85?'w':'r';
+    const avgA=o.contracts.reduce((a,c)=>a+c.accept,0)/o.contracts.length;
+    const avgL=o.contracts.reduce((a,c)=>a+c.lateLogin,0)/o.contracts.length;
+    const avgN=o.contracts.reduce((a,c)=>a+c.noShow,0)/o.contracts.length;
+    const dues=o.contracts.filter(function(c){return checkAgreementAlert(c.contract,c.zone,achv||0);}).length;
+    const clist=o.contracts.map(function(c){
+      const t=getTargetForContract(c.contract,c.zone,curMonth);
+      const ca=t&&t>0?c.workHrs/t:null;
+      const caCls=ca===null?'':ca>=0.90?'g':ca>=0.85?'w':'r';
+      return '<span style="display:inline-block;margin:2px;font-size:10px;padding:2px 6px;border-radius:4px;background:var(--bg);border:1px solid var(--border)">'+c.contract+(ca!==null?' '+tag(Math.round(ca*100)+'%',caCls):'')+'</span>';
+    }).join('');
+    return '<tr>'
+      +'<td><strong>'+o.owner+'</strong>'+(o.ownerEmail?'<div style="font-size:10px;color:var(--muted)">'+o.ownerEmail+'</div>':'')+'</td>'
+      +'<td style="text-align:center">'+o.contracts.length+'</td>'
+      +'<td>'+o.riders+'</td>'
+      +'<td>'+tag((avgA*100).toFixed(1)+'%',avgA>=0.95?'g':avgA>=0.90?'w':'r')+'</td>'
+      +'<td>'+tag((avgL*100).toFixed(1)+'%',avgL<=0.05?'g':avgL<=0.10?'w':'r')+'</td>'
+      +'<td>'+Math.round(o.totalActual).toLocaleString()+'</td>'
+      +'<td>'+(o.totalTarget?Math.round(o.totalTarget).toLocaleString():'—')+'</td>'
+      +'<td>'+(achv!==null?tag((achv*100).toFixed(1)+'%',achvCls):'—')+'</td>'
+      +'<td>'+tag((avgN*100).toFixed(1)+'%',avgN<=0.05?'g':avgN<=0.10?'w':'r')+'</td>'
+      +'<td>'+(dues?'<span style="background:#fee2e2;color:#dc2626;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:600">⚠ '+dues+' due</span>':'—')+'</td>'
+      +'<td style="max-width:240px">'+clist+'</td>'
+      +'</tr>';
+  }).join('');
+
+  const ownerTH='<tr><th>Owner</th><th>Contracts</th><th>Riders</th><th>Acceptance</th><th>Late Login</th><th>Actual WH</th><th>Target WH</th><th>Achievement</th><th>No Show</th><th>Alerts</th><th>Contracts</th></tr>';
+  const ownerTableHTML='<div class="card"><div class="card-hd">Team Performance — By Owner <span class="card-sub">'+range.label+'</span></div>'
+    +'<div class="tbl-wrap"><table><thead>'+ownerTH+'</thead><tbody>'
+    +(ownerRows||'<tr><td colspan="11" style="text-align:center;padding:24px;color:var(--muted)">No data</td></tr>')
+    +'</tbody></table></div></div>';
+
+  const agreeTableHTML=agreeRows.length
+    ?'<div class="card"><div class="card-hd">Agreements Tracker <span class="card-sub">'+agreeRows.length+' agreements</span></div><div class="tbl-wrap"><table>'
+      +'<thead><tr><th>Date</th><th>Contract</th><th>Zone</th><th>Owner</th><th>Target %</th><th>Commit Date</th><th>Notes</th><th>Status</th></tr></thead>'
+      +'<tbody>'+agreeRows.map(function(a){
+        const isDue=a.commitDate<=today2&&a.status==='Pending';
+        return '<tr style="'+(isDue?'background:#fff5f5':'')+'">'
+          +'<td style="color:var(--muted)">'+a.dateAdded+'</td>'
+          +'<td><strong>'+a.contract+'</strong></td>'
+          +'<td>'+a.zone+'</td>'
+          +'<td>'+a.owner+'</td>'
+          +'<td>'+tag(a.targetPct+'%','w')+'</td>'
+          +'<td style="'+(isDue?'color:var(--danger);font-weight:600':'')+'">'+a.commitDate+(isDue?' ⚠':'')+'</td>'
+          +'<td style="max-width:200px;white-space:normal;font-size:11px;color:var(--muted)">'+(a.notes||'—')+'</td>'
+          +'<td>'+tag(a.status,a.status==='Done'?'g':'w')+'</td>'
+          +'</tr>';
+      }).join('')+'</tbody></table></div></div>'
+    :'<div class="empty"><div class="empty-icon">📝</div><div>No agreements yet</div><div style="font-size:11px;opacity:.5">Click Add on any contract</div></div>';
+
+  var mainContent;
+  if(tplView==='contract') mainContent=kpisHTML+contractTableHTML;
+  else if(tplView==='owner') mainContent=kpisHTML+ownerTableHTML;
+  else mainContent=agreeTableHTML;
+
+  document.getElementById('tpl-body').innerHTML=controlsHTML+mainContent;
+}
+
+// ── ACTION LOG ──
+let alZone='both', alOwner='all', alStatus='all';
+
+function renderActionLog(){
+  if(!agreeRows.length&&!tplRows.length){
+    Promise.all([fetchAgreements(),fetch3PL(),fetchTarget()]).then(function(results){
+      agreeRows=results[0];tplRows=results[1];targetRows=results[2];renderActionLogBody();
+    }).catch(function(){
+      document.getElementById('actionlog-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error</div>';
+    });
+    return;
+  }
+  renderActionLogBody();
+}
+
+function renderActionLogBody(){
+  const today=new Date().toISOString().slice(0,10);
+  const curMonth=new Date().getMonth()+1;
+  const owners=[...new Set(targetRows.map(function(t){return t.ownerName;}).filter(Boolean))].sort();
+
+  let filtered=agreeRows.filter(function(a){
+    const zm=alZone==='both'||a.zone.toLowerCase().includes(alZone==='alex'?'alex':'agam');
+    const om=alOwner==='all'||a.owner===alOwner;
+    const sm=alStatus==='all'||a.status===alStatus||(alStatus==='overdue'&&a.commitDate<today&&a.status==='Pending');
+    return zm&&om&&sm;
+  });
+
+  const total=agreeRows.length;
+  const pending=agreeRows.filter(function(a){return a.status==='Pending';}).length;
+  const overdue=agreeRows.filter(function(a){return a.commitDate<today&&a.status==='Pending';}).length;
+  const done=agreeRows.filter(function(a){return a.status==='Done';}).length;
+
+  function tag(v,c){return '<span class="tag '+c+'">'+v+'</span>';}
+  function zbtn(l,active,oc){return '<button class="ztab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
+  function sbtn(l,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
+
+  const kpisHTML='<div class="kpi-grid" style="margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl">Total</div><div class="kpi-val">'+total+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Pending</div><div class="kpi-val w">'+pending+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Overdue ⚠</div><div class="kpi-val r">'+overdue+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Done</div><div class="kpi-val g">'+done+'</div></div>'
+    +'</div>';
+
+  const ownerOpts='<option value="all">All Owners</option>'+owners.map(function(o){return '<option value="'+o+'" '+(alOwner===o?'selected':'')+'>'+o+'</option>';}).join('');
+
+  const controlsHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +zbtn('Alex + Agamy',alZone==='both',"alZone='both';renderActionLogBody()")
+    +zbtn('Alexandria',alZone==='alex',"alZone='alex';renderActionLogBody()")
+    +zbtn('Agamy',alZone==='agamy',"alZone='agamy';renderActionLogBody()")
+    +'</div>'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +sbtn('All',alStatus==='all',"alStatus='all';renderActionLogBody()")
+    +sbtn('Pending',alStatus==='Pending',"alStatus='Pending';renderActionLogBody()")
+    +sbtn('Overdue',alStatus==='overdue',"alStatus='overdue';renderActionLogBody()")
+    +sbtn('Done',alStatus==='Done',"alStatus='Done';renderActionLogBody()")
+    +'</div>'
+    +'<select onchange="alOwner=this.value;renderActionLogBody()" style="background:var(--white);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:7px;font-size:11px">'+ownerOpts+'</select>'
+    +'<span style="font-size:11px;color:var(--muted)">'+filtered.length+' agreements</span>'
+    +'</div>';
+
+  const byOwner={};
+  filtered.forEach(function(a){
+    const ok=a.owner||'Unassigned';
+    if(!byOwner[ok]) byOwner[ok]=[];
+    byOwner[ok].push(a);
+  });
+
+  const ownerCards=Object.keys(byOwner).sort().map(function(owner){
+    const ownerAgrees=byOwner[owner];
+    const ownerOverdue=ownerAgrees.filter(function(a){return a.commitDate<today&&a.status==='Pending';}).length;
+    const ownerDone=ownerAgrees.filter(function(a){return a.status==='Done';}).length;
+    const rows=ownerAgrees.map(function(a){
+      const isDue=a.commitDate<today&&a.status==='Pending';
+      const isToday=a.commitDate===today;
+      const daysLeft=Math.ceil((new Date(a.commitDate)-new Date(today))/(1000*60*60*24));
+      let dateLabel=a.commitDate;
+      if(isDue) dateLabel='<span style="color:var(--danger);font-weight:600">'+a.commitDate+' ⚠ Overdue</span>';
+      else if(isToday) dateLabel='<span style="color:var(--warn);font-weight:600">Today!</span>';
+      else if(daysLeft<=3) dateLabel='<span style="color:var(--warn)">'+a.commitDate+' ('+daysLeft+'d)</span>';
+      return '<tr style="'+(isDue?'background:#fff5f5':isToday?'background:#fffbeb':'')+'">'
+        +'<td><strong>'+a.contract+'</strong><div style="font-size:10px;color:var(--muted)">'+a.zone+'</div></td>'
+        +'<td>'+tag(a.targetPct+'%','w')+'</td>'
+        +'<td>'+dateLabel+'</td>'
+        +'<td style="max-width:200px;white-space:normal;font-size:11px;color:var(--muted)">'+(a.notes||'—')+'</td>'
+        +'<td><span style="font-size:10px;color:var(--muted)">'+a.dateAdded+'</span></td>'
+        +'<td><button onclick="markAgreementDone(this.dataset.c,this.dataset.z,this.dataset.d)" data-c="'+a.contract+'" data-z="'+a.zone+'" data-d="'+a.commitDate+'" style="font-size:10px;padding:3px 8px;background:var(--goodbg);border:1px solid var(--good);color:var(--good);border-radius:5px;cursor:pointer">✓ Done</button></td>'
+        +'</tr>';
+    }).join('');
+    return '<div class="card" style="margin-bottom:12px">'
+      +'<div class="card-hd" style="display:flex;align-items:center;justify-content:space-between">'
+        +'<div style="display:flex;align-items:center;gap:8px">'
+          +'<div style="width:32px;height:32px;border-radius:50%;background:var(--orangelight);color:var(--orange);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700">'+owner.split(' ').map(function(n){return n[0];}).join('').toUpperCase().slice(0,2)+'</div>'
+          +'<div><div style="font-size:13px;font-weight:700">'+owner+'</div>'
+          +'<div style="font-size:10px;color:var(--muted)">'+ownerAgrees.length+' agreements · '+ownerDone+' done'+(ownerOverdue?' · <span style="color:var(--danger)">'+ownerOverdue+' overdue</span>':'')+'</div></div>'
+        +'</div>'
+        +(ownerOverdue?'<span style="background:#fee2e2;color:#dc2626;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600">⚠ '+ownerOverdue+' overdue</span>':'<span class="tag g">On track</span>')
+      +'</div>'
+      +'<div class="tbl-wrap"><table>'
+        +'<thead><tr><th>Contract</th><th>Target %</th><th>Commit Date</th><th>Notes</th><th>Added</th><th>Action</th></tr></thead>'
+        +'<tbody>'+rows+'</tbody>'
+      +'</table></div></div>';
+  }).join('');
+
+  document.getElementById('actionlog-body').innerHTML=controlsHTML+kpisHTML+(ownerCards||'<div class="empty"><div class="empty-icon">📋</div><div>No agreements</div><div style="font-size:11px;opacity:.5">Add from 3PL Performance tab</div></div>');
+}
+
+function markAgreementDone(contract,zone,commitDate){
+  agreeRows=agreeRows.map(function(a){
+    if(a.contract===contract&&a.zone===zone&&a.commitDate===commitDate) return Object.assign({},a,{status:'Done'});
+    return a;
+  });
+  renderActionLogBody();
+}
+
+// ── TALABAT MART ──
+let martBranches=[], martLooker=[], martView='branches', martPeriod='day', martBranch='all';
+
+async function fetchMartCSV(gid){
+  const param=gid===MART_BGID?'mart_branches':'mart_looker';
+  const rows=await fetchFromAPI(param);
+  if(!rows.length) return [];
+  const headers=rows[0].map(function(h){return String(h);});
+  return rows.slice(1).filter(function(r){return r[0]&&r[1];}).map(function(r){
+    const o={};
+    headers.forEach(function(h,i){o[h]=String(r[i]||'');});
+    return o;
+  });
+}
+
+function getMartRange(){
+  const yest=yesterday();
+  if(martPeriod==='day') return {from:yest,to:yest,label:'Yesterday'};
+  if(martPeriod==='week'){const t=new Date();return {from:getMonday(t),to:getSunday(t),label:'This week'};}
+  if(martPeriod==='month') return {from:getMonthStart(),to:getMonthEnd(),label:'This month'};}
+  return {from:yest,to:yest,label:'Yesterday'};
+}
+
+function renderMart(){
+  if(!martBranches.length){
+    Promise.all([fetchMartCSV(MART_BGID),fetchMartCSV(MART_LGID)]).then(function(results){
+      martBranches=results[0];martLooker=results[1];renderMartBody();
+    }).catch(function(e){
+      document.getElementById('mart-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+e.message+'</div>';
+    });
+    return;
+  }
+  renderMartBody();
+}
+
+function aggMartBranches(rows,range){
+  const byBranch={};
+  rows.forEach(function(r){
+    const dt=r['Local Order Date']||'';
+    if(dt<range.from||dt>range.to) return;
+    const name=r['Vendor Name (English)']||'Unknown';
+    if(!byBranch[name]) byBranch[name]={name:name,orders:0,under15:0,under20:0,ontime:[],early:[],dt:[],toVendor:[],atVendor:[],toCustomer:[],vendorDelay:[],riderLate:[],avtc:[]};
+    const b=byBranch[name];
+    b.orders+=parseFloat(r['Completed Orders'])||0;
+    b.under15+=parseFloat(r['Orders Under 15m DT'])||0;
+    b.under20+=parseFloat(r['Orders Under 20m DT'])||0;
+    if(r['Order On Time %']) b.ontime.push(parseFloat(r['Order On Time %'])||0);
+    if(r['% Order Early < 10']) b.early.push(parseFloat(r['% Order Early < 10'])||0);
+    if(r['Avg. Actual Delivery Time (Mins)']) b.dt.push(parseFloat(r['Avg. Actual Delivery Time (Mins)'])||0);
+    if(r['Avg. To Vendor Time (Mins)']) b.toVendor.push(parseFloat(r['Avg. To Vendor Time (Mins)'])||0);
+    if(r['Avg. At Vendor Time (Mins)']) b.atVendor.push(parseFloat(r['Avg. At Vendor Time (Mins)'])||0);
+    if(r['Avg. To Customer Time (Mins)']) b.toCustomer.push(parseFloat(r['Avg. To Customer Time (Mins)'])||0);
+    if(r['Vendor Delay v2 >10mins percentage']) b.vendorDelay.push(parseFloat(r['Vendor Delay v2 >10mins percentage'])||0);
+    if(r['Rider Late Orders >10mins Percentage']) b.riderLate.push(parseFloat(r['Rider Late Orders >10mins Percentage'])||0);
+    if(r['Avg. At vendor time cleaned mins (AVTC)']) b.avtc.push(parseFloat(r['Avg. At vendor time cleaned mins (AVTC)'])||0);
+  });
+  return Object.values(byBranch).map(function(b){
+    function avg(arr){return arr.length?arr.reduce(function(a,x){return a+x;},0)/arr.length:0;}
+    return {name:b.name,orders:b.orders,under15Pct:b.orders>0?b.under15/b.orders:0,under20Pct:b.orders>0?b.under20/b.orders:0,ontime:avg(b.ontime),early:avg(b.early),combined:avg(b.ontime)+avg(b.early),dt:avg(b.dt),toVendor:avg(b.toVendor),atVendor:avg(b.atVendor),toCustomer:avg(b.toCustomer),vendorDelay:avg(b.vendorDelay),riderLate:avg(b.riderLate),avtc:avg(b.avtc)};
+  }).sort(function(a,b){return b.orders-a.orders;});
+}
+
+function renderMartBody(){
+  const range=getMartRange();
+  const branches=[...new Set(martBranches.map(function(r){return r['Vendor Name (English)'];}).filter(Boolean))].sort();
+  const branchData=aggMartBranches(martBranches,range);
+  const totOrders=branchData.reduce(function(a,b){return a+b.orders;},0);
+  const avgCombined=branchData.length?branchData.reduce(function(a,b){return a+b.combined;},0)/branchData.length:0;
+  const avgDT=branchData.length?branchData.reduce(function(a,b){return a+b.dt;},0)/branchData.length:0;
+  const avgU15=branchData.length?branchData.reduce(function(a,b){return a+b.under15Pct;},0)/branchData.length:0;
+  const avgU20=branchData.length?branchData.reduce(function(a,b){return a+b.under20Pct;},0)/branchData.length:0;
+
+  function tag(v,c){return '<span class="tag '+c+'">'+v+'</span>';}
+  function pct2(v){return (v*100).toFixed(1)+'%';}
+  function dec2(v){return v.toFixed(2);}
+  function sbtn(l,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
+
+  const kpisHTML='<div class="kpi-grid" style="margin-bottom:14px">'
+    +'<div class="kpi"><div class="kpi-lbl">Total Orders</div><div class="kpi-val">'+Math.round(totOrders).toLocaleString()+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">On Time + Early %</div><div class="kpi-val '+(avgCombined>=0.85?'g':avgCombined>=0.75?'w':'r')+'">'+pct2(avgCombined)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Avg DT (min)</div><div class="kpi-val '+(avgDT<=20?'g':avgDT<=25?'w':'r')+'">'+dec2(avgDT)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Under 15min %</div><div class="kpi-val '+(avgU15>=0.60?'g':avgU15>=0.45?'w':'r')+'">'+pct2(avgU15)+'</div></div>'
+    +'<div class="kpi"><div class="kpi-lbl">Under 20min %</div><div class="kpi-val '+(avgU20>=0.80?'g':avgU20>=0.65?'w':'r')+'">'+pct2(avgU20)+'</div></div>'
+    +'</div>';
+
+  const branchOpts='<option value="all">All Branches</option>'+branches.map(function(b){return '<option value="'+b+'" '+(martBranch===b?'selected':'')+'>'+b.replace('talabat mart, ','').replace('Tmart, ','')+'</option>';}).join('');
+
+  const controlsHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +sbtn('By Branch',martView==='branches',"martView='branches';renderMartBody()")
+    +sbtn('By Area',martView==='areas',"martView='areas';renderMartBody()")
+    +'</div>'
+    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
+    +sbtn('Yesterday',martPeriod==='day',"martPeriod='day';renderMartBody()")
+    +sbtn('This Week',martPeriod==='week',"martPeriod='week';renderMartBody()")
+    +sbtn('This Month',martPeriod==='month',"martPeriod='month';renderMartBody()")
+    +'</div>'
+    +(martView==='areas'?'<select onchange="martBranch=this.value;renderMartBody()" style="background:var(--white);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:7px;font-size:11px">'+branchOpts+'</select>':'')
+    +'<span style="font-size:11px;color:var(--muted)">'+range.label+'</span>'
+    +'</div>';
+
+  const branchRows=branchData.map(function(b){
+    const cCls=b.combined>=0.85?'g':b.combined>=0.75?'w':'r';
+    const dtCls=b.dt<=20?'g':b.dt<=25?'w':'r';
+    const u15Cls=b.under15Pct>=0.60?'g':b.under15Pct>=0.45?'w':'r';
+    const u20Cls=b.under20Pct>=0.80?'g':b.under20Pct>=0.65?'w':'r';
+    const vdCls=b.vendorDelay<=0.10?'g':b.vendorDelay<=0.15?'w':'r';
+    const rlCls=b.riderLate<=0.10?'g':b.riderLate<=0.15?'w':'r';
+    const shortName=b.name.replace('talabat mart, ','').replace('Tmart, ','');
+    return '<tr>'
+      +'<td><strong>'+shortName+'</strong></td>'
+      +'<td style="font-weight:600">'+Math.round(b.orders).toLocaleString()+'</td>'
+      +'<td>'+tag(pct2(b.combined),cCls)+'</td>'
+      +'<td>'+tag(dec2(b.dt)+' min',dtCls)+'</td>'
+      +'<td>'+tag(pct2(b.under15Pct),u15Cls)+'</td>'
+      +'<td>'+tag(pct2(b.under20Pct),u20Cls)+'</td>'
+      +'<td>'+dec2(b.toVendor)+' min</td>'
+      +'<td>'+dec2(b.atVendor)+' min</td>'
+      +'<td>'+dec2(b.toCustomer)+' min</td>'
+      +'<td>'+tag(pct2(b.vendorDelay),vdCls)+'</td>'
+      +'<td>'+tag(pct2(b.riderLate),rlCls)+'</td>'
+      +'<td>'+dec2(b.avtc)+' min</td>'
+      +'</tr>';
+  }).join('');
+
+  const branchTH='<tr><th>Branch</th><th>Orders</th><th>On Time+Early</th><th>Avg DT</th><th>Under 15m</th><th>Under 20m</th><th>To Vendor</th><th>At Vendor</th><th>To Customer</th><th>Vendor Delay</th><th>Rider Late</th><th>AVTC</th></tr>';
+  const tableHTML='<div class="card"><div class="card-hd">'+( martView==='branches'?'Branch':'Area')+' Performance <span class="card-sub">'+range.label+'</span></div>'
+    +'<div class="tbl-wrap"><table><thead>'+branchTH+'</thead><tbody>'
+    +(branchRows||'<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:24px">No data</td></tr>')
+    +'</tbody></table></div></div>';
+
+  document.getElementById('mart-body').innerHTML=controlsHTML+kpisHTML+tableHTML;
+}
+
+// missing variables
+let tplView='contract';
+let targetRows=[];
+
 </script>
 </body>
 </html>
