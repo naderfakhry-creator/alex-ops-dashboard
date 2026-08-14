@@ -462,12 +462,30 @@ function getActiveRiders(zone,range){
   return vals.reduce((a,x)=>a+x,0)/vals.length;
 }
 
-async function fetchFromAPI(sheetParam){
-  const url=WEBAPP_URL+'?sheet='+sheetParam+'&t='+Date.now();
-  const r=await fetch(url);
-  const json=await r.json();
-  if(json.error) throw new Error(json.error);
-  return json.rows||[];
+function fetchFromAPI(sheetParam){
+  return new Promise(function(resolve, reject){
+    const cbName='cb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const script=document.createElement('script');
+    const timeout=setTimeout(function(){
+      delete window[cbName];
+      document.body.removeChild(script);
+      reject(new Error('Timeout loading: '+sheetParam));
+    }, 30000);
+    window[cbName]=function(json){
+      clearTimeout(timeout);
+      delete window[cbName];
+      document.body.removeChild(script);
+      if(json.error) reject(new Error(json.error));
+      else resolve(json.rows||[]);
+    };
+    script.src=WEBAPP_URL+'?sheet='+sheetParam+'&callback='+cbName+'&t='+Date.now();
+    script.onerror=function(){
+      clearTimeout(timeout);
+      delete window[cbName];
+      reject(new Error('Script load error: '+sheetParam));
+    };
+    document.body.appendChild(script);
+  });
 }
 
 async function fetchCSV(gid){
