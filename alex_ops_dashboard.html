@@ -1023,10 +1023,15 @@ function showAgreeConfirm(csvRow, row){
     +'<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Paste this row in the Agreements tab:</div>'
     +'<div style="background:#f4f5f8;border-radius:8px;padding:10px 12px;font-family:monospace;font-size:11px;color:#1a1d27;word-break:break-all;margin-bottom:14px;border:1px solid var(--border)">'+csvRow+'</div>'
     +'<div style="display:flex;gap:8px;justify-content:flex-end">'
-    +'<button onclick="navigator.clipboard.writeText(this.dataset.row);this.textContent='Copied!'" data-row="'+csvRow.replace(/"/g,'&quot;')+'" style="background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px">📋 Copy Row</button>'
+    +'<button id="copy-btn" data-row="x" style="background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px">📋 Copy Row</button>'
     +'<button onclick="document.getElementById(\'agree-modal\').remove();render3PLBody()" style="background:var(--orange);color:#fff;border:none;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">Done</button>'
     +'</div></div>';
   document.body.appendChild(modal);
+  const copyBtn=document.getElementById('copy-btn');
+  if(copyBtn){
+    copyBtn.dataset.row=csvRow;
+    copyBtn.onclick=function(){navigator.clipboard.writeText(this.dataset.row);this.textContent='Copied!';};
+  }
 }
 
 function showAgreementForm(contract, zone, owner){
