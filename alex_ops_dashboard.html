@@ -871,11 +871,8 @@ function renderTasks(){
 
 // ── 3PL PERFORMANCE ──
 async function fetch3PL(){
-  const r=await fetch(WEBAPP_URL+'?sheet=looker&t='+Date.now());
-  const json=await r.json();
-  const rows=json.rows||[];
-  // A:date B:contract C:zone D:riders E:accept F:latelogin G:workhrs H:noshow I:planned J:attendance K:break
-  return rows.slice(1).filter(r=>r[0]&&r[1]&&r[2]).map(r=>({
+  const rows=await fetchFromAPI('looker');
+  return rows.slice(1).filter(function(r){return r[0]&&r[1]&&r[2];}).map(function(r){return {
     date:String(r[0]),contract:String(r[1]),zone:String(r[2]),
     riders:parseFloat(r[3])||0,
     accept:parseFloat(r[4])||0,
@@ -885,7 +882,7 @@ async function fetch3PL(){
     planned:parseFloat(r[8])||0,
     attendance:parseFloat(r[9])||0,
     breakMins:parseFloat(r[10])||0,
-  }));
+  };});
 }
 
 let tplRows=[];
