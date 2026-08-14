@@ -1388,7 +1388,7 @@ function getMartRange(){
   const yest=yesterday();
   if(martPeriod==='day') return {from:yest,to:yest,label:'Yesterday'};
   if(martPeriod==='week'){const t=new Date();return {from:getMonday(t),to:getSunday(t),label:'This week'};}
-  if(martPeriod==='month') return {from:getMonthStart(),to:getMonthEnd(),label:'This month'};}
+  if(martPeriod==='month') return {from:getMonthStart(),to:getMonthEnd(),label:'This month'};
   return {from:yest,to:yest,label:'Yesterday'};
 }
 
