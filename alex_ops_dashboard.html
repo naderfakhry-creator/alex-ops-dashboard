@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alex Ops Dashboard</title>
+<style>
+:root{
+  --bg:#f4f5f8;--white:#fff;--card:#fff;
+  --orange:#ff6b00;--orange2:#e85d00;--orangelight:#fff3ec;
+  --text:#1a1d27;--muted:#7b7f95;--sub:#a0a4b5;
+  --border:#e8eaef;--border2:#d0d3de;
+  --good:#16a34a;--danger:#dc2626;--warn:#d97706;
+  --goodbg:#dcfce7;--dangerbg:#fee2e2;--warnbg:#fef3c7;
+  --font:system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;min-height:100vh}
+
+/* HERO HEADER */
+.hero{
+  background:linear-gradient(135deg,#ff6b00 0%,#cc3d00 60%,#7a1a00 100%);
+  padding:20px 24px 18px;
+}
+.hero-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.hero-brand{display:flex;align-items:center;gap:12px}
+.hero-logo{width:42px;height:42px;background:rgba(0,0,0,.25);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.hero-name{font-size:20px;font-weight:800;color:#fff;letter-spacing:-.5px}
+.hero-sub{font-size:10px;color:rgba(255,255,255,.7);text-transform:uppercase;letter-spacing:.1em;margin-top:2px}
+.hero-sync{display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(255,255,255,.75)}
+.hero-sync-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.hero-kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:rgba(255,255,255,.15);border-radius:12px;overflow:hidden}
+.hero-kpi{background:rgba(0,0,0,.15);padding:12px 16px}
+.hero-kpi-lbl{font-size:9px;color:rgba(255,255,255,.65);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.hero-kpi-val{font-size:24px;font-weight:800;color:#fff;letter-spacing:-.5px}
+.hero-kpi-d{font-size:10px;margin-top:3px}
+.hero-kpi-d.up{color:#4ade80}.hero-kpi-d.dn{color:#fca5a5}
+.sync-btn{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;padding:5px 12px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:600}
+.sync-btn:hover{background:rgba(255,255,255,.25)}
+
+/* NAV TABS */
+.navwrap{background:var(--white);border-bottom:1px solid var(--border);padding:0 24px;display:flex;align-items:center;gap:4px;overflow-x:auto}
+.ntab{padding:12px 14px;font-size:12px;font-weight:500;color:var(--muted);background:transparent;border:none;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:all .15s;display:flex;align-items:center;gap:5px}
+.ntab:hover{color:var(--text)}
+.ntab.active{color:var(--orange);border-bottom-color:var(--orange);font-weight:600}
+.ntab .nbadge{background:var(--orange);color:#fff;font-size:9px;padding:1px 5px;border-radius:8px}
+
+/* CONTENT */
+.content{padding:18px 24px}
+.sec{display:none}.sec.active{display:block}
+
+/* SECTION CONTROLS */
+.sec-controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px}
+.sc-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.sc-group{display:flex;align-items:center;gap:6px}
+.cw-nav{display:flex;align-items:center;gap:4px}
+.cw-nav button{background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:4px 8px;border-radius:6px;cursor:pointer;font-size:11px}
+.cw-nav button:hover{border-color:var(--orange);color:var(--orange)}
+.cw-tag{background:var(--orange);color:#fff;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;min-width:58px;text-align:center}
+.sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+
+/* SUB TABS */
+.sub-tabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);padding:3px;border-radius:9px;width:fit-content;margin-bottom:14px}
+.stab{padding:5px 14px;font-size:11px;font-weight:500;color:var(--muted);background:transparent;border:none;border-radius:7px;cursor:pointer;transition:all .15s}
+.stab.active{background:var(--white);color:var(--orange);border:1px solid var(--border);font-weight:600}
+
+/* ZONE TABS */
+.zone-tabs{display:flex;gap:4px;background:var(--bg);border:1px solid var(--border);padding:3px;border-radius:8px;width:fit-content;margin-bottom:14px}
+.ztab{padding:4px 14px;font-size:11px;font-weight:600;color:var(--muted);background:transparent;border:none;border-radius:6px;cursor:pointer;transition:all .15s}
+.ztab.active{background:var(--orange);color:#fff}
+
+/* METRIC PILLS */
+.metric-row{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.mpill{padding:4px 10px;font-size:10px;font-weight:500;color:var(--muted);background:var(--white);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .15s}
+.mpill:hover{border-color:var(--orange);color:var(--orange)}
+.mpill.active{background:var(--orangelight);border-color:var(--orange);color:var(--orange);font-weight:600}
+
+/* KPI GRID */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px}
+.kpi{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.kpi-lbl{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-bottom:5px}
+.kpi-val{font-size:22px;font-weight:700;letter-spacing:-.5px;color:var(--text)}
+.kpi-val.g{color:var(--good)}.kpi-val.r{color:var(--danger)}.kpi-val.w{color:var(--warn)}
+.kpi-d{font-size:10px;margin-top:3px}.kpi-d.up{color:var(--good)}.kpi-d.dn{color:var(--danger)}
+
+/* OVERVIEW ZONE CARDS */
+.zone-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:14px}
+.zcard{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;border-left:4px solid var(--orange)}
+.zcard.needs{border-left-color:var(--danger)}
+.zcard.ok{border-left-color:var(--good)}
+.zcard-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.zcard-name{font-size:15px;font-weight:700;color:var(--text)}
+.zcard-badge{font-size:9px;font-weight:700;padding:3px 8px;border-radius:20px}
+.zcard-badge.na{background:var(--dangerbg);color:var(--danger)}
+.zcard-badge.ok{background:var(--goodbg);color:var(--good)}
+.zcard-badge.w{background:var(--warnbg);color:var(--warn)}
+.zcard-rows{display:flex;flex-direction:column;gap:6px}
+.zcard-row{display:flex;align-items:center;justify-content:space-between}
+.zcard-metric{font-size:11px;color:var(--muted)}
+.zcard-val{font-size:12px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:3px}
+.zcard-val.g{color:var(--good)}.zcard-val.r{color:var(--danger)}.zcard-val.w{color:var(--warn)}
+.arr{font-size:9px}
+
+/* CARD */
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.card-hd{font-size:12px;font-weight:600;color:var(--text);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.card-sub{font-size:10px;color:var(--muted);font-weight:400}
+
+/* TABLE */
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{padding:7px 12px;text-align:left;color:var(--muted);font-weight:500;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);background:#fafbfc;white-space:nowrap}
+td{padding:7px 12px;color:var(--text);border-bottom:1px solid var(--border);white-space:nowrap}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#fafbfc}
+
+/* TAGS */
+.tag{display:inline-block;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600}
+.tag.g{background:var(--goodbg);color:var(--good)}
+.tag.r{background:var(--dangerbg);color:var(--danger)}
+.tag.w{background:var(--warnbg);color:var(--warn)}
+
+/* LEGEND */
+.legend{display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap}
+.li{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted)}
+.ld{width:12px;height:3px;border-radius:2px}
+
+/* CONTROLS ROW */
+.controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.controls label{font-size:11px;color:var(--muted)}
+.controls select{background:var(--white);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:7px;font-size:11px;cursor:pointer}
+
+/* LOADING */
+.loading{display:flex;align-items:center;gap:8px;padding:40px;color:var(--muted);font-size:12px;justify-content:center}
+.spinner{width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{display:flex;flex-direction:column;align-items:center;padding:60px;color:var(--muted);gap:8px;text-align:center}
+.empty-icon{font-size:36px;opacity:.25}
+
+/* DIFF */
+.dp{color:var(--good);font-weight:600}.dn2{color:var(--danger);font-weight:600}
+
+/* TASKS */
+.tf{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.fl{display:flex;flex-direction:column;gap:5px}
+.fl label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+.fl input,.fl select,.fl textarea{background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:7px 10px;border-radius:7px;font-size:12px;resize:none}
+.fl textarea{min-height:65px}
+.sbtn{background:var(--orange);color:#fff;border:none;padding:8px 18px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;margin-left:auto}
+.sbtn:hover{background:var(--orange2)}
+.tc{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:8px;border-left:3px solid var(--orange)}
+.tc-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:5px}
+.tc-name{font-size:13px;font-weight:600;color:var(--text)}
+.tc-desc{font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+.tc-ft{display:flex;align-items:center;justify-content:space-between}
+.asgn{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted)}
+.av{width:22px;height:22px;border-radius:50%;background:var(--orangelight);color:var(--orange);display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700}
+.rbtn{font-size:10px;padding:3px 8px;background:var(--bg);border:1px solid var(--border2);color:var(--muted);border-radius:5px;cursor:pointer}
+.rbtn:hover{color:var(--text)}
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-top">
+    <div class="hero-brand">
+      <div class="hero-logo">🏍</div>
+      <div>
+        <div class="hero-name">Alex Ops Dashboard</div>
+        <div class="hero-sub">Talabat · Operations Control Tower</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="hero-sync"><div class="hero-sync-dot"></div><span id="sync-lbl">Syncing...</span></div>
+      <button class="sync-btn" onclick="loadData()">⟳ Sync now</button>
+    </div>
+  </div>
+  <div class="hero-kpis">
+    <div class="hero-kpi"><div class="hero-kpi-lbl">Total Orders</div><div class="hero-kpi-val" id="h-orders">—</div><div class="hero-kpi-d" id="h-orders-d"></div></div>
+    <div class="hero-kpi"><div class="hero-kpi-lbl">Active Riders</div><div class="hero-kpi-val" id="h-riders">—</div></div>
+    <div class="hero-kpi"><div class="hero-kpi-lbl">Avg On-Time %</div><div class="hero-kpi-val" id="h-ontime">—</div></div>
+    <div class="hero-kpi"><div class="hero-kpi-lbl">Avg Fail Rate</div><div class="hero-kpi-val" id="h-fail">—</div></div>
+  </div>
+</div>
+
+<!-- NAV -->
+<div class="navwrap">
+  <button class="ntab active" onclick="showSec('overview',this)">🔭 Overview</button>
+  <button class="ntab" onclick="showSec('kl',this)">📊 Key Logistics</button>
+  <button class="ntab" onclick="showSec('3pl',this)">🏢 3PL Performance</button>
+  <button class="ntab" onclick="showSec('team',this)">👥 Team Performance</button>
+  <button class="ntab" onclick="showSec('mart',this)">🛒 Talabat Mart</button>
+  <button class="ntab" onclick="showSec('tasks',this)">✅ Tasks <span class="nbadge" id="tbadge">0</span></button>
+</div>
+
+<div class="content">
+
+  <!-- OVERVIEW -->
+  <div class="sec active" id="sec-overview">
+    <div class="sec-controls">
+      <span class="sc-label">Period</span>
+      <div class="sc-group">
+        <div class="cw-nav">
+          <button onclick="changeCW(-1,'ov')">◀</button>
+          <span class="cw-tag" id="ov-cw">CW —</span>
+          <button onclick="changeCW(1,'ov')">▶</button>
+        </div>
+      </div>
+    </div>
+    <div class="zone-cards" id="ov-cards">
+      <div class="loading"><div class="spinner"></div> Loading...</div>
+    </div>
+  </div>
+
+  <!-- KEY LOGISTICS -->
+  <div class="sec" id="sec-kl">
+    <div class="sec-controls">
+      <span class="sc-label">CW</span>
+      <div class="cw-nav">
+        <button onclick="changeCW(-1,'kl')">◀</button>
+        <span class="cw-tag" id="kl-cw">CW —</span>
+        <button onclick="changeCW(1,'kl')">▶</button>
+      </div>
+      <div class="sep"></div>
+      <div class="zone-tabs" style="margin:0">
+        <button class="ztab active" onclick="setZone('alex',this)">Alexandria</button>
+        <button class="ztab" onclick="setZone('agamy',this)">Agamy</button>
+        <button class="ztab" onclick="setZone('both',this)">Compare</button>
+      </div>
+    </div>
+    <div class="sub-tabs">
+      <button class="stab active" onclick="setView('trend',this)">Trend</button>
+      <button class="stab" onclick="setView('weekly',this)">Weekly</button>
+      <button class="stab" onclick="setView('daily',this)">Daily</button>
+      <button class="stab" onclick="setView('cwcmp',this)">CW Compare</button>
+    </div>
+    <div id="kl-body"><div class="loading"><div class="spinner"></div> Loading...</div></div>
+  </div>
+
+  <!-- 3PL -->
+  <div class="sec" id="sec-3pl">
+    <div class="empty"><div class="empty-icon">🏢</div><div>3PL Performance</div><div style="font-size:11px;opacity:.5">Looker connection coming soon</div></div>
+  </div>
+
+  <!-- TEAM -->
+  <div class="sec" id="sec-team">
+    <div class="empty"><div class="empty-icon">👥</div><div>Team Performance</div><div style="font-size:11px;opacity:.5">Looker connection coming soon</div></div>
+  </div>
+
+  <!-- MART -->
+  <div class="sec" id="sec-mart">
+    <div class="empty"><div class="empty-icon">🛒</div><div>Talabat Mart</div><div style="font-size:11px;opacity:.5">Looker connection coming soon</div></div>
+  </div>
+
+  <!-- TASKS -->
+  <div class="sec" id="sec-tasks">
+    <div class="tf">
+      <div class="fg">
+        <div class="fl"><label>Task title</label><input type="text" id="t-title" placeholder="e.g. Review morning shift"></div>
+        <div class="fl"><label>Assign to</label>
+          <select id="t-assign">
+            <option value="">Select...</option>
+            <option value="ahmed.hassan@talabat.com">Ahmed Hassan</option>
+            <option value="sara.ali@talabat.com">Sara Ali</option>
+            <option value="omar.khaled@talabat.com">Omar Khaled</option>
+            <option value="nada.ibrahim@talabat.com">Nada Ibrahim</option>
+            <option value="mahmoud.farouk@talabat.com">Mahmoud Farouk</option>
+          </select>
+        </div>
+        <div class="fl"><label>Priority</label>
+          <select id="t-pri">
+            <option value="high">High 🔴</option>
+            <option value="med" selected>Medium 🟡</option>
+            <option value="low">Low 🟢</option>
+          </select>
+        </div>
+        <div class="fl"><label>Due date</label><input type="date" id="t-due"></div>
+      </div>
+      <div class="fl" style="margin-bottom:12px"><label>Details</label><textarea id="t-desc" placeholder="Task details..."></textarea></div>
+      <div style="display:flex;justify-content:flex-end"><button class="sbtn" onclick="sendTask()">✉ Send & Email</button></div>
+    </div>
+    <div id="t-list"><div class="empty"><div class="empty-icon">✅</div><div>No tasks yet</div></div></div>
+  </div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const SID='1THhvR_py1v85B8W1sIfPnTrhdqtWmgaUOzAYHnDFitQ';
+const AGID='814764545';
+const GGID='397343242';
+
+let aData={},gData={},allCWs=[],cwIdxs={ov:0,kl:0},zone='alex',view='trend',metric='% Order On Time',tasks=[],charts=[];
+
+const M=[
+  {k:'Orders Completed',l:'Orders',f:'num',d:'up'},
+  {k:'% Fail Rate',l:'Fail rate',f:'pct',d:'down'},
+  {k:'% Transport Fail Rate',l:'Transport fail',f:'pct',d:'down'},
+  {k:'UTR',l:'UTR',f:'dec',d:'up'},
+  {k:'DT (min)',l:'DT (min)',f:'dec',d:'down'},
+  {k:'% Order Late > 10',l:'Late >10',f:'pct',d:'down'},
+  {k:'% Order On Time',l:'On time',f:'pct',d:'up'},
+  {k:'% Order Early > 10',l:'Early >10',f:'pct',d:'up'},
+  {k:'% Idle Time',l:'Idle',f:'pct',d:'down'},
+  {k:'% Stacked Deliveries',l:'Stacked',f:'pct',d:'down'},
+  {k:'% Acceptance Rate',l:'Acceptance',f:'pct',d:'up'},
+  {k:'# Working Hours',l:'Working hrs',f:'num',d:'up'},
+  {k:'% Break Hours',l:'Break hrs',f:'pct',d:'down'},
+  {k:'% Vendor Late > 10',l:'Vendor late',f:'pct',d:'down'},
+  {k:'% Rider Late > 10',l:'Rider late',f:'pct',d:'down'},
+  {k:'To Vendor Time (min)',l:'To vendor',f:'dec',d:'down'},
+  {k:'To Customer Time (min)',l:'To customer',f:'dec',d:'down'},
+  {k:'At Vendor Time (sec)',l:'At vendor',f:'dec',d:'down'},
+];
+
+function fv(v,f){
+  if(v===null||v===undefined||v==='') return '—';
+  const n=parseFloat(v);if(isNaN(n)) return v;
+  if(f==='pct') return (n*100).toFixed(1)+'%';
+  if(f==='dec') return n.toFixed(2);
+  if(f==='num') return Math.round(n).toLocaleString();
+  return v;
+}
+function fr(v,f){
+  if(v===null||v===undefined||v==='') return null;
+  const n=parseFloat(v);if(isNaN(n)) return null;
+  if(f==='pct') return parseFloat((n*100).toFixed(3));
+  if(f==='dec') return parseFloat(n.toFixed(3));
+  if(f==='num') return Math.round(n);
+  return n;
+}
+function vc(v,d,f){
+  const n=parseFloat(v);if(isNaN(n)) return '';
+  if(f==='pct'){if(d==='up') return n>=0.85?'g':n>=0.75?'w':'r';if(d==='down') return n<=0.05?'g':n<=0.12?'w':'r';}
+  return '';
+}
+
+async function fetchCSV(gid){
+  const r=await fetch(`https://docs.google.com/spreadsheets/d/${SID}/export?format=csv&gid=${gid}`);
+  const t=await r.text();
+  const rows=t.split('\n').map(r=>r.split(',').map(c=>c.trim().replace(/^"|"$/g,'')));
+  const d={};
+  rows.forEach(row=>{
+    const [cw,met,dt,val]=row;
+    if(!cw||!met||cw==='CW') return;
+    if(!d[cw]) d[cw]={w:{},day:{}};
+    if(dt==='All') d[cw].w[met]=val;
+    else{if(!d[cw].day[dt]) d[cw].day[dt]={};d[cw].day[dt][met]=val;}
+  });
+  return d;
+}
+
+async function loadData(){
+  try{
+    [aData,gData]=await Promise.all([fetchCSV(AGID),fetchCSV(GGID)]);
+    allCWs=[...new Set([...Object.keys(aData),...Object.keys(gData)])].filter(c=>c&&c!=='CW').sort();
+    cwIdxs.ov=allCWs.length-1;
+    cwIdxs.kl=allCWs.length-1;
+    document.getElementById('sync-lbl').textContent='Synced '+new Date().toLocaleTimeString();
+    updateHero();
+    renderActive();
+  }catch(e){
+    document.getElementById('sync-lbl').textContent='Error — check sheet permissions';
+  }
+}
+
+function updateHero(){
+  const cw=allCWs[cwIdxs.kl]||allCWs[allCWs.length-1];
+  const prev=allCWs[cwIdxs.kl-1];
+  const aw=aData[cw]?.w||{};
+  const gw=gData[cw]?.w||{};
+  const ao=parseFloat(aw['Orders Completed']||0);
+  const go=parseFloat(gw['Orders Completed']||0);
+  const tot=Math.round(ao+go);
+  document.getElementById('h-orders').textContent=tot.toLocaleString();
+  const aot=parseFloat(aw['% Order On Time']||0);
+  const got=parseFloat(gw['% Order On Time']||0);
+  const avot=((aot+got)/2*100).toFixed(1);
+  document.getElementById('h-ontime').textContent=avot+'%';
+  const afr=parseFloat(aw['% Fail Rate']||0);
+  const gfr=parseFloat(gw['% Fail Rate']||0);
+  document.getElementById('h-fail').textContent=((afr+gfr)/2*100).toFixed(1)+'%';
+  if(prev){
+    const pw=aData[prev]?.w||{};
+    const po=parseFloat(pw['Orders Completed']||0)+parseFloat(gData[prev]?.w?.['Orders Completed']||0);
+    const diff=tot-Math.round(po);
+    const el=document.getElementById('h-orders-d');
+    el.textContent=(diff>=0?'▲':'▼')+Math.abs(diff).toLocaleString()+' vs prev CW';
+    el.className='hero-kpi-d '+(diff>=0?'up':'dn');
+  }
+}
+
+function changeCW(d,sec){
+  cwIdxs[sec]=Math.max(0,Math.min(allCWs.length-1,cwIdxs[sec]+d));
+  const cw=allCWs[cwIdxs[sec]]||'—';
+  document.getElementById(sec+'-cw').textContent=cw;
+  if(sec==='ov') renderOverview();
+  else renderKL();
+}
+
+function setZone(z,el){zone=z;document.querySelectorAll('.ztab').forEach(t=>t.classList.remove('active'));el.classList.add('active');renderKL();}
+function setView(v,el){view=v;document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));el.classList.add('active');renderKL();}
+
+function showSec(id,el){
+  document.querySelectorAll('.sec').forEach(s=>s.classList.remove('active'));
+  document.getElementById('sec-'+id).classList.add('active');
+  document.querySelectorAll('.ntab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  if(id==='overview') renderOverview();
+  else if(id==='kl') renderKL();
+}
+
+function killCharts(){charts.forEach(c=>{try{c.destroy()}catch(e){}});charts=[];}
+
+function renderActive(){
+  const active=document.querySelector('.sec.active');
+  if(!active) return;
+  const id=active.id.replace('sec-','');
+  if(id==='overview') renderOverview();
+  else if(id==='kl') renderKL();
+}
+
+function renderOverview(){
+  const cw=allCWs[cwIdxs.ov]||'—';
+  document.getElementById('ov-cw').textContent=cw;
+  const prev=allCWs[cwIdxs.ov-1];
+
+  const zones=[
+    {name:'Alexandria',src:aData,color:'var(--orange)'},
+    {name:'Agamy',src:gData,color:'#7c3aed'},
+  ];
+
+  const ovMetrics=[
+    {k:'DT (min)',l:'Delivery Time (min)',f:'dec',d:'down'},
+    {k:'# Working Hours',l:'Working Hours',f:'num',d:'up'},
+    {k:'Orders Completed',l:'Orders Completed',f:'num',d:'up'},
+    {k:'% Order On Time',l:'On-Time Delivery',f:'pct',d:'up'},
+    {k:'UTR',l:'UTR (orders/hour)',f:'dec',d:'up'},
+    {k:'% Acceptance Rate',l:'Acceptance Rate',f:'pct',d:'up'},
+    {k:'% Fail Rate',l:'Fail Rate',f:'pct',d:'down'},
+    {k:'% Idle Time',l:'Idle Time',f:'pct',d:'down'},
+  ];
+
+  const cards=zones.map(z=>{
+    const w=z.src[cw]?.w||{};
+    const pw=prev?z.src[prev]?.w||{}:{};
+    const ontime=parseFloat(w['% Order On Time']||0);
+    const fail=parseFloat(w['% Fail Rate']||0);
+    const status=fail>0.08||ontime<0.75?'needs':ontime>=0.85&&fail<=0.05?'ok':'warn';
+    const badgeTxt=status==='needs'?'Needs action':status==='ok'?'On track':'Watch';
+    const rows=ovMetrics.map(m=>{
+      const v=w[m.k];const pv=pw[m.k];
+      const cls=vc(v,m.d,m.f);
+      let arrow='';
+      if(v&&pv){const df=parseFloat(v)-parseFloat(pv);if(!isNaN(df)&&df!==0){const up=df>0;const good=(m.d==='up')?up:!up;arrow=`<span class="arr" style="color:${good?'var(--good)':'var(--danger)'}">${up?'▲':'▼'}</span>`;}}
+      return `<div class="zcard-row"><span class="zcard-metric">${m.l}</span><span class="zcard-val ${cls}">${fv(v,m.f)} ${arrow}</span></div>`;
+    }).join('');
+    return `<div class="zcard ${status}">
+      <div class="zcard-hd">
+        <div class="zcard-name">${z.name}</div>
+        <span class="zcard-badge ${status==='needs'?'na':status==='ok'?'ok':'w'}">${badgeTxt}</span>
+      </div>
+      <div class="zcard-rows">${rows}</div>
+    </div>`;
+  }).join('');
+
+  document.getElementById('ov-cards').innerHTML=cards;
+}
+
+function mpills(){
+  return `<div class="metric-row">${M.map(m=>`<button class="mpill${m.k===metric?' active':''}" onclick="metric='${m.k}';renderKL()">${m.l}</button>`).join('')}</div>`;
+}
+
+function renderKL(){
+  killCharts();
+  const cw=allCWs[cwIdxs.kl]||'—';
+  document.getElementById('kl-cw').textContent=cw;
+  updateHero();
+  if(view==='trend') doTrend();
+  else if(view==='weekly') doWeekly(cw);
+  else if(view==='daily') doDaily(cw);
+  else doCWCmp();
+}
+
+function doTrend(){
+  const mo=M.find(m=>m.k===metric)||M[6];
+  const labels=allCWs;
+  const av=labels.map(cw=>fr(aData[cw]?.w?.[metric],mo.f));
+  const gv=labels.map(cw=>fr(gData[cw]?.w?.[metric],mo.f));
+  const trows=labels.map((cw,i)=>{
+    const a=av[i],g=gv[i];
+    const df=(a!==null&&g!==null)?(a-g).toFixed(2):null;
+    const dc=df!==null?(parseFloat(df)>0?'dp':'dn2'):'';
+    return `<tr><td style="font-weight:600;color:var(--orange)">${cw}</td><td>${a??'—'}</td><td>${g??'—'}</td><td class="${dc}">${df!==null?(parseFloat(df)>0?'+':'')+df:'—'}</td></tr>`;
+  }).join('');
+  document.getElementById('kl-body').innerHTML=`
+    ${mpills()}
+    <div class="card">
+      <div class="card-hd">${mo.l} — Trend <span class="card-sub">All CWs</span></div>
+      <div class="legend">
+        <div class="li"><div class="ld" style="background:var(--orange)"></div>Alexandria</div>
+        <div class="li"><div class="ld" style="background:#7c3aed"></div>Agamy</div>
+      </div>
+      <div style="position:relative;height:230px"><canvas id="tc" role="img" aria-label="Trend chart for ${mo.l}"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-hd">Weekly summary</div>
+      <div class="tbl-wrap"><table><thead><tr><th>CW</th><th style="color:var(--orange)">Alexandria</th><th style="color:#7c3aed">Agamy</th><th>Diff</th></tr></thead><tbody>${trows}</tbody></table></div>
+    </div>`;
+  const ctx=document.getElementById('tc');
+  if(ctx) charts.push(new Chart(ctx,{type:'line',data:{labels,datasets:[
+    {label:'Alexandria',data:av,borderColor:'#ff6b00',backgroundColor:'rgba(255,107,0,0.06)',borderWidth:2,pointRadius:5,pointBackgroundColor:'#ff6b00',tension:.35},
+    {label:'Agamy',data:gv,borderColor:'#7c3aed',backgroundColor:'rgba(124,58,237,0.06)',borderWidth:2,pointRadius:5,pointBackgroundColor:'#7c3aed',tension:.35,borderDash:[5,3]}
+  ]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#7b7f95',autoSkip:false,maxRotation:0},grid:{color:'#f0f0f0'}},y:{ticks:{color:'#7b7f95'},grid:{color:'#f0f0f0'}}}}}));
+}
+
+function doWeekly(cw){
+  if(zone==='both'){doBothWeekly(cw);return;}
+  const src=zone==='alex'?aData:gData;
+  const prev=allCWs[cwIdxs.kl-1];
+  const w=src[cw]?.w||{};
+  const pw=prev?src[prev]?.w||{}:{};
+  const kpis=M.slice(0,8).map(m=>{
+    const v=w[m.k],pv=pw[m.k];
+    const cls=vc(v,m.d,m.f);
+    let dlt='';
+    if(v&&pv){const df=parseFloat(v)-parseFloat(pv);if(!isNaN(df)&&df!==0){const up=df>0;const good=(m.d==='up')?up:!up;dlt=`<div class="kpi-d ${good?'up':'dn'}">${up?'▲':'▼'} ${fv(Math.abs(df),m.f)}</div>`;}}
+    return `<div class="kpi"><div class="kpi-lbl">${m.l}</div><div class="kpi-val ${cls}">${fv(v,m.f)}</div>${dlt}</div>`;
+  }).join('');
+  const rows=M.map(m=>{const v=w[m.k];const tc=vc(v,m.d,m.f);const dv=fv(v,m.f);return `<tr><td style="color:var(--muted)">${m.l}</td><td>${tc?`<span class="tag ${tc}">${dv}</span>`:dv}</td></tr>`;}).join('');
+  document.getElementById('kl-body').innerHTML=`
+    <div class="kpi-grid">${kpis}</div>
+    <div class="card">
+      <div class="card-hd">All metrics — ${cw} <span class="card-sub">${zone==='alex'?'Alexandria':'Agamy'}</span></div>
+      <div class="tbl-wrap"><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+}
+
+function doBothWeekly(cw){
+  const rows=M.map(m=>{
+    const av=aData[cw]?.w?.[m.k],gv=gData[cw]?.w?.[m.k];
+    const atc=vc(av,m.d,m.f),gtc=vc(gv,m.d,m.f);
+    return `<tr><td style="color:var(--muted)">${m.l}</td><td>${atc?`<span class="tag ${atc}">${fv(av,m.f)}</span>`:fv(av,m.f)}</td><td>${gtc?`<span class="tag ${gtc}">${fv(gv,m.f)}</span>`:fv(gv,m.f)}</td></tr>`;
+  }).join('');
+  document.getElementById('kl-body').innerHTML=`
+    <div class="card">
+      <div class="card-hd">Alexandria vs Agamy — ${cw}</div>
+      <div class="tbl-wrap"><table><thead><tr><th>Metric</th><th style="color:var(--orange)">Alexandria</th><th style="color:#7c3aed">Agamy</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+}
+
+function doDaily(cw){
+  const mo=M.find(m=>m.k===metric)||M[6];
+  if(zone==='both'){
+    const allD=[...new Set([...Object.keys(aData[cw]?.day||{}),...Object.keys(gData[cw]?.day||{})])].sort();
+    const av=allD.map(d=>fr(aData[cw]?.day?.[d]?.[metric],mo.f));
+    const gv=allD.map(d=>fr(gData[cw]?.day?.[d]?.[metric],mo.f));
+    document.getElementById('kl-body').innerHTML=`
+      ${mpills()}
+      <div class="card">
+        <div class="card-hd">Daily — ${mo.l} <span class="card-sub">${cw}</span></div>
+        <div class="legend"><div class="li"><div class="ld" style="background:var(--orange)"></div>Alexandria</div><div class="li"><div class="ld" style="background:#7c3aed"></div>Agamy</div></div>
+        <div style="position:relative;height:230px"><canvas id="dc" role="img" aria-label="Daily chart for ${mo.l}"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-hd">Daily table</div>
+        <div class="tbl-wrap"><table><thead><tr><th>Date</th><th style="color:var(--orange)">Alexandria</th><th style="color:#7c3aed">Agamy</th><th>Diff</th></tr></thead><tbody>
+          ${allD.map((d,i)=>{const a=av[i],g=gv[i];const df=(a!==null&&g!==null)?(a-g).toFixed(2):null;const dc=df!==null?(parseFloat(df)>0?'dp':'dn2'):'';return `<tr><td style="color:var(--muted)">${d}</td><td>${a??'—'}</td><td>${g??'—'}</td><td class="${dc}">${df!==null?(parseFloat(df)>0?'+':'')+df:'—'}</td></tr>`;}).join('')}
+        </tbody></table></div>
+      </div>`;
+    const ctx=document.getElementById('dc');
+    if(ctx) charts.push(new Chart(ctx,{type:'line',data:{labels:allD.map(d=>d.slice(5)),datasets:[{label:'Alexandria',data:av,borderColor:'#ff6b00',borderWidth:2,pointRadius:4,pointBackgroundColor:'#ff6b00',tension:.3,backgroundColor:'rgba(255,107,0,0.06)'},{label:'Agamy',data:gv,borderColor:'#7c3aed',borderWidth:2,pointRadius:4,pointBackgroundColor:'#7c3aed',tension:.3,borderDash:[5,3],backgroundColor:'rgba(124,58,237,0.06)'}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#7b7f95',maxRotation:45},grid:{color:'#f0f0f0'}},y:{ticks:{color:'#7b7f95'},grid:{color:'#f0f0f0'}}}}}));
+    return;
+  }
+  const src=zone==='alex'?aData:gData;
+  const daily=src[cw]?.day||{};
+  const dates=Object.keys(daily).sort().reverse().slice(0,14);
+  const cols=['Orders Completed','% Order On Time','% Order Late > 10','DT (min)','UTR','% Idle Time','% Acceptance Rate'];
+  const ths=`<th>Date</th>${cols.map(k=>`<th>${M.find(m=>m.k===k)?.l||k}</th>`).join('')}`;
+  const rows=dates.map(d=>{const cells=cols.map(k=>`<td>${fv(daily[d]?.[k],M.find(m=>m.k===k)?.f||'dec')}</td>`).join('');return `<tr><td style="color:var(--muted);font-weight:500">${d}</td>${cells}</tr>`;}).join('');
+  document.getElementById('kl-body').innerHTML=`
+    <div class="card">
+      <div class="card-hd">Daily breakdown — ${cw} <span class="card-sub">${zone==='alex'?'Alexandria':'Agamy'}</span></div>
+      <div class="tbl-wrap"><table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+}
+
+function doCWCmp(){
+  const cws=allCWs.slice(-8);
+  document.getElementById('kl-body').innerHTML=`
+    ${mpills()}
+    <div class="controls">
+      <label>Week 1:</label>
+      <select id="cw1" onchange="drawCmp()">${cws.map(c=>`<option ${c===cws[cws.length-2]?'selected':''}>${c}</option>`).join('')}</select>
+      <label>Week 2:</label>
+      <select id="cw2" onchange="drawCmp()">${cws.map(c=>`<option ${c===cws[cws.length-1]?'selected':''}>${c}</option>`).join('')}</select>
+    </div>
+    <div id="cmp-res"></div>`;
+  setTimeout(drawCmp,50);
+}
+
+function drawCmp(){
+  const cw1=document.getElementById('cw1')?.value;
+  const cw2=document.getElementById('cw2')?.value;
+  if(!cw1||!cw2) return;
+  const rows=M.map(m=>{
+    const a1=fr(aData[cw1]?.w?.[m.k],m.f),a2=fr(aData[cw2]?.w?.[m.k],m.f);
+    const g1=fr(gData[cw1]?.w?.[m.k],m.f),g2=fr(gData[cw2]?.w?.[m.k],m.f);
+    const ad=(a1!==null&&a2!==null)?(a2-a1).toFixed(2):null;
+    const gd=(g1!==null&&g2!==null)?(g2-g1).toFixed(2):null;
+    const dc=(v,d)=>{if(v===null)return '';const up=parseFloat(v)>0;return (d==='up'?up:!up)?'dp':'dn2';};
+    return `<tr>
+      <td style="color:var(--muted)">${m.l}</td>
+      <td>${a1??'—'}</td><td>${a2??'—'}</td>
+      <td class="${dc(ad,m.d)}">${ad!==null?(parseFloat(ad)>0?'+':'')+ad:'—'}</td>
+      <td>${g1??'—'}</td><td>${g2??'—'}</td>
+      <td class="${dc(gd,m.d)}">${gd!==null?(parseFloat(gd)>0?'+':'')+gd:'—'}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('cmp-res').innerHTML=`
+    <div class="card">
+      <div class="card-hd">${cw1} vs ${cw2}</div>
+      <div class="tbl-wrap"><table>
+        <thead>
+          <tr><th rowspan="2">Metric</th><th colspan="3" style="text-align:center;color:var(--orange)">Alexandria</th><th colspan="3" style="text-align:center;color:#7c3aed">Agamy</th></tr>
+          <tr><th>${cw1}</th><th>${cw2}</th><th>Δ</th><th>${cw1}</th><th>${cw2}</th><th>Δ</th></tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+    </div>`;
+}
+
+function sendTask(){
+  const t=document.getElementById('t-title').value.trim();
+  const a=document.getElementById('t-assign').value;
+  const p=document.getElementById('t-pri').value;
+  const due=document.getElementById('t-due').value;
+  const d=document.getElementById('t-desc').value.trim();
+  if(!t||!a){alert('Please fill in title and assignee');return;}
+  const name=document.getElementById('t-assign').selectedOptions[0].text;
+  const ini=name.split(' ').map(n=>n[0]).join('').toUpperCase();
+  const pl={high:'High 🔴',med:'Medium 🟡',low:'Low 🟢'}[p];
+  tasks.unshift({t,name,ini,a,p,pl,due:due||'Open',d,id:Date.now()});
+  document.getElementById('tbadge').textContent=tasks.length;
+  renderTasks();
+  document.getElementById('t-title').value='';
+  document.getElementById('t-desc').value='';
+  document.getElementById('t-assign').value='';
+  document.getElementById('t-due').value='';
+  window.location.href=`mailto:${a}?subject=New task: ${encodeURIComponent(t)}&body=${encodeURIComponent(`Hi ${name},\n\nYou have a new task:\n\nTitle: ${t}\nPriority: ${pl}\nDue: ${due||'Open'}\n\nDetails:\n${d}\n\nPlease reply when completed.\n\nThanks,\nNader`)}`;
+}
+
+function renderTasks(){
+  const el=document.getElementById('t-list');
+  if(!tasks.length){el.innerHTML='<div class="empty"><div class="empty-icon">✅</div><div>No tasks yet</div></div>';return;}
+  el.innerHTML=tasks.map(t=>`
+    <div class="tc">
+      <div class="tc-hd"><div class="tc-name">${t.t}</div><span class="tag ${t.p==='high'?'r':t.p==='low'?'g':'w'}">${t.pl}</span></div>
+      ${t.d?`<div class="tc-desc">${t.d}</div>`:''}
+      <div class="tc-ft">
+        <div class="asgn"><div class="av">${t.ini}</div>${t.name}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:10px;color:var(--muted)">📅 ${t.due}</span>
+          <button class="rbtn" onclick="window.location.href='mailto:${t.a}?subject=Re: ${encodeURIComponent(t.t)}'">Reply</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+loadData();
+</script>
+</body>
+</html>
