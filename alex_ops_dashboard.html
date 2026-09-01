@@ -1666,7 +1666,7 @@ function render3PLBody(){
   const data=agg3PL(tplRows,range);
   const today2=toYMD(new Date());
 
-  const curMonth=new Date().getMonth()+1;
+  const curMonth=parseInt(range.from.slice(5,7));
   const totRiders=data.reduce((a,c)=>a+c.riders,0);
   const totWH=data.reduce((a,c)=>a+c.workHrs,0);
   const totTarget=data.reduce(function(a,c){const t=getTargetForContract(c.contract,c.zone,curMonth);return a+(t?t*c.days:0);},0);
@@ -1846,7 +1846,7 @@ function selectOwnerDrill(owner){
   });
 
   const range=getRange();
-  const curMonth=new Date().getMonth()+1;
+  const curMonth=parseInt(range.from.slice(5,7));
 
   const ownerContracts=tplOwnerData.filter(function(c){
     const p=getOwnerForContract(c.contract,c.zone);
