@@ -1669,7 +1669,8 @@ function render3PLBody(){
   const curMonth=parseInt(range.from.slice(5,7));
   const totRiders=data.reduce((a,c)=>a+c.riders,0);
   const totWH=data.reduce((a,c)=>a+c.workHrs,0);
-  const totTarget=data.reduce(function(a,c){const t=getTargetForContract(c.contract,c.zone,curMonth);return a+(t?t*c.days:0);},0);
+  const _cmdDays={};tplRows.forEach(function(r){if(r.date<range.from||r.date>range.to)return;const _k=r.contract+'|'+r.zone,_m=parseInt(r.date.slice(5,7));if(!_cmdDays[_k])_cmdDays[_k]={};_cmdDays[_k][_m]=(_cmdDays[_k][_m]||0)+1;});
+  const totTarget=data.reduce(function(a,c){const _md=_cmdDays[c.contract+'|'+c.zone]||{};let ct=0;Object.keys(_md).forEach(function(m){const t=getTargetForContract(c.contract,c.zone,parseInt(m));if(t)ct+=t*_md[m];});return a+ct;},0);
   const overallAchv=totTarget>0?totWH/totTarget:null;
   const avgLate=data.length?data.reduce((a,c)=>a+c.lateLogin,0)/data.length:0;
   const avgNoShow=data.length?data.reduce((a,c)=>a+c.noShow,0)/data.length:0;
@@ -1901,6 +1902,15 @@ function selectOwnerDrill(owner){
       +'</div>'
     :'<div style="padding:12px 0;font-size:11px;color:var(--muted)">Select a wider period to see charts</div>';
 
+  const totalChartHTML=showChart
+    ?'<div style="padding:0 0 14px">'
+      +'<div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px">'
+      +'<div style="font-size:12px;font-weight:700;color:var(--text)">📊 '+esc(owner)+' — Total</div>'
+      +'<div style="font-size:10px;color:var(--muted);margin-bottom:10px">All contracts combined</div>'
+      +'<div style="position:relative;height:260px"><canvas id="drill-total-chart"></canvas></div>'
+      +'</div></div>'
+    :'';
+
   // Agreements for this owner's contracts
   const cKeySet=new Set(ownerContracts.map(function(c){return c.contract.toLowerCase()+'|'+c.zone.toLowerCase();}));
   const todayStr=toYMD(new Date());
@@ -1966,6 +1976,7 @@ function selectOwnerDrill(owner){
       +'<tbody>'+contractRows+'</tbody>'
     +'</table></div>'
     +chartCardsHTML
+    +totalChartHTML
     +agreementsHTML
     +'</div>';
 
@@ -2000,7 +2011,7 @@ function selectOwnerDrill(owner){
               },
               {
                 label:'Target (100%)',
-                data:chartDates.map(function(){return target;}),
+                data:chartDates.map(function(date){const _m=parseInt(date.slice(5,7));return getTargetForContract(c.contract,c.zone,_m)||0;}),
                 type:'line',
                 borderColor:'#22c55e',
                 borderWidth:2,
@@ -2011,7 +2022,7 @@ function selectOwnerDrill(owner){
               },
               {
                 label:'90% Threshold',
-                data:chartDates.map(function(){return threshold90;}),
+                data:chartDates.map(function(date){const _m=parseInt(date.slice(5,7));const _t=getTargetForContract(c.contract,c.zone,_m)||0;return _t*0.9;}),
                 type:'line',
                 borderColor:'#ef4444',
                 borderWidth:1.5,
@@ -2043,6 +2054,71 @@ function selectOwnerDrill(owner){
           },
         }));
       });
+
+      // Total chart
+      const totalCanvas=document.getElementById('drill-total-chart');
+      if(totalCanvas){
+        const existingTotal=Chart.getChart(totalCanvas);
+        if(existingTotal) existingTotal.destroy();
+        const totalActualData=chartDates.map(function(date){
+          return ownerContracts.reduce(function(sum,c){
+            const row=tplRows.find(function(r){return r.date===date&&r.contract===c.contract&&r.zone===c.zone;});
+            return sum+(row!=null?row.workHrs:0);
+          },0);
+        });
+        const totalTargetData=chartDates.map(function(date){
+          const _m=parseInt(date.slice(5,7));
+          return ownerContracts.reduce(function(sum,c){
+            return sum+(getTargetForContract(c.contract,c.zone,_m)||0);
+          },0);
+        });
+        const totalThreshold90=totalTargetData.map(function(t){return t*0.9;});
+        const maxTotalTarget=Math.max.apply(null,totalTargetData.filter(function(v){return v>0;}));
+        new Chart(totalCanvas,{
+          type:'bar',
+          data:{
+            labels:chartDates,
+            datasets:[
+              {
+                label:'Total Actual WH',
+                data:totalActualData,
+                backgroundColor:totalActualData.map(function(v,i){return totalTargetData[i]>0&&v>=totalThreshold90[i]?'rgba(34,197,94,0.45)':'rgba(249,115,22,0.4)';}),
+                borderColor:totalActualData.map(function(v,i){return totalTargetData[i]>0&&v>=totalThreshold90[i]?'#22c55e':'#f97316';}),
+                borderWidth:1.5,borderRadius:3,order:2,
+              },
+              {
+                label:'Target (100%)',
+                data:totalTargetData,
+                type:'line',borderColor:'#22c55e',borderWidth:2,borderDash:[5,4],pointRadius:0,fill:false,order:1,
+              },
+              {
+                label:'90% Threshold',
+                data:totalThreshold90,
+                type:'line',borderColor:'#ef4444',borderWidth:1.5,borderDash:[3,3],pointRadius:0,fill:false,order:3,
+              }
+            ]
+          },
+          options:{
+            responsive:true,maintainAspectRatio:false,
+            interaction:{mode:'index',intersect:false},
+            plugins:{
+              legend:{display:false},
+              datalabels:{display:false},
+              tooltip:{callbacks:{
+                label:function(ctx){
+                  if(ctx.datasetIndex===0){const t=totalTargetData[ctx.dataIndex];return 'Total WH: '+Math.round(ctx.parsed.y)+(t>0?' ('+(ctx.parsed.y/t*100).toFixed(1)+'%)':'');}
+                  if(ctx.datasetIndex===1) return 'Target: '+Math.round(ctx.parsed.y);
+                  return '90% line: '+Math.round(ctx.parsed.y);
+                }
+              }}
+            },
+            scales:{
+              x:{ticks:{color:'var(--muted)',maxRotation:45,font:{size:9}},grid:{display:false}},
+              y:{min:0,suggestedMax:maxTotalTarget?maxTotalTarget*1.25:undefined,ticks:{color:'var(--muted)',font:{size:9}},grid:{color:'rgba(128,128,128,0.08)'}}
+            }
+          }
+        });
+      }
     });
   }
 }
