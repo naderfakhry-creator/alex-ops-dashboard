@@ -277,6 +277,18 @@ tbody tr:hover td{background:#f8fafd}
 .user-chip{display:flex;align-items:center;gap:7px;background:var(--bg);border:1px solid var(--border2);border-radius:20px;padding:4px 10px 4px 6px;font-size:11px;color:var(--text)}
 .user-chip .av{width:22px;height:22px;border-radius:50%;background:var(--orange-dim);color:var(--orange);display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:800;flex-shrink:0}
 .logout-btn{font-size:10px;color:var(--muted);background:none;border:none;cursor:pointer;padding:0;margin-left:2px}.logout-btn:hover{color:var(--danger)}
+/* ── MART ── */
+.mt-tbl th:not(:first-child),.mt-tbl td:not(:first-child){text-align:right}
+.mt-th{cursor:pointer;user-select:none}
+.mt-th:hover{color:var(--orange)}
+.mt-br{cursor:pointer}
+.mt-ar td{background:#f8fafc;font-size:11px;color:var(--muted)}
+.mt-sub{font-size:10px;color:var(--sub);font-weight:400}
+.mt-car{display:inline-block;width:12px;color:var(--muted)}
+.mt-date{background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:8px;font-size:11px;font-family:var(--font)}
+.mt-chip{display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:4px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--white);color:var(--text);cursor:pointer;font-family:var(--font)}
+.mt-chip.off{opacity:.45}
+.mt-sw{display:inline-block;width:14px;height:3px;border-radius:1px}
 </style>
 </head>
 <body>
@@ -429,7 +441,7 @@ tbody tr:hover td{background:#f8fafd}
 
   <!-- MART -->
   <div class="sec" id="sec-mart">
-    <div id="mart-body"><div class="loading"><div class="spinner"></div> Loading Mart data...</div></div>
+    <div id="mart-body"><div class="loading"><div class="spinner"></div> Loading Mart data... (can take ~20 seconds)</div></div>
   </div>
 
   <!-- TASKS -->
@@ -477,8 +489,6 @@ const GGID='397343242';
 const LGID='0';
 const TGID='538570109';
 const AGREEGID='1428903426';
-const MART_BGID='183328933';
-const MART_LGID='928748455';
 const WEBAPP_URL='https://script.google.com/macros/s/AKfycbwKnCfaX3t9DEzfmHo1kG8PERQYO1u4BFrKVhE6kTfuUoJrsShlbi4Uo0GwlOK339SJ1A/exec';
 
 function esc(s){if(s==null)return '';return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -725,7 +735,7 @@ function getActiveRidersZone(zone,range){
   return vals.reduce((a,x)=>a+x,0)/vals.length;
 }
 
-function fetchFromAPI(sheetParam, retries){
+function fetchFromAPI(sheetParam, retries, timeoutMs){
   if(retries===undefined) retries=1;
   return new Promise(function(resolve, reject){
     const cbName='cb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
@@ -737,7 +747,7 @@ function fetchFromAPI(sheetParam, retries){
     }
     function retry(errMsg){
       if(retries>0){
-        fetchFromAPI(sheetParam, retries-1).then(resolve, reject);
+        fetchFromAPI(sheetParam, retries-1, timeoutMs).then(resolve, reject);
       } else {
         reject(new Error(errMsg));
       }
@@ -745,7 +755,7 @@ function fetchFromAPI(sheetParam, retries){
     const timeout=setTimeout(function(){
       cleanup();
       retry('Timeout loading: '+sheetParam);
-    }, 25000);
+    }, timeoutMs||25000);
     window[cbName]=function(json){
       cleanup();
       if(json.error) reject(new Error(json.error));
@@ -2267,137 +2277,393 @@ function renderActionLogBody(){
 }
 
 // ── TALABAT MART ──
-let martBranches=[], martLooker=[], martView='branches', martPeriod='day', martBranch='all';
+let martRows=[], martLoading=false;
+let martMode='sum', martPer='d1', martMet='ot', martSortK='o', martSortDir=-1;
+let martOpen=new Set(), martByDate=new Map(), martBranchList=[], martLast='', martFirst='', martFrom='', martTo='', martPeriods={}, martCache={};
+let martTrendN=30, martVis={rates:null,orders:null}, martSeriesList=[], martChartInst=null, martTrendData=null;
 
-async function fetchMartCSV(gid){
-  const param=gid===MART_BGID?'mart_branches':'mart_looker';
-  const rows=await fetchFromAPI(param);
+const MART_NEED=['Local Order Date','Vendor Name (English)','Area Name','Completed Orders','Orders Under 15m DT','Orders Under 20m DT','Avg. Primary Dropoff Distance Manhattan (Km)','Avg. Actual Delivery Time (Mins)','Avg. At vendor time cleaned mins (AVTC)','on time+early'];
+const MART_SUM_PERIODS=[['d1','Yesterday'],['l3d','Last 3 days'],['l7d','Last 7 days'],['l14d','Last 14 days'],['mtd','This month'],['lm','Last month']];
+const MART_COL=['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6','#e34948']; // one fixed colour per series (slot = position in martSeriesList), never re-ordered by rank
+const MART_METRICS=[['o','Orders / day'],['d','DT (min)'],['ot','On time + early'],['u15','&lt; 15 min'],['u20','&lt; 20 min'],['dist','Distance (km)'],['avtc','AVTC (min)']];
+
+// mart_looker = one row per date x branch (vendor) x area; every metric is weighted by Completed Orders
+async function fetchMartCSV(){
+  const rows=await fetchFromAPI('mart_looker',0,90000); // ~2 MB sheet (about 20 s today): the default 25 s timeout is too short
   if(!rows.length) return [];
-  const headers=rows[0].map(function(h){return String(h);});
-  return rows.slice(1).filter(function(r){return r[0]&&r[1];}).map(function(r){
-    const o={};
-    headers.forEach(function(h,i){o[h]=String(r[i]||'');});
-    return o;
+  const headers=rows[0].map(function(h){return String(h).trim();});
+  const ix={};
+  MART_NEED.forEach(function(h){ix[h]=headers.indexOf(h);});
+  const miss=MART_NEED.filter(function(h){return ix[h]<0;});
+  if(miss.length) throw new Error('Mart_Looker is missing column: '+miss.join(', '));
+  const out=[];
+  rows.slice(1).forEach(function(r){
+    const dt=String(r[ix['Local Order Date']]||'').slice(0,10);
+    const br=String(r[ix['Vendor Name (English)']]||'').trim();
+    const o=parseN(r[ix['Completed Orders']]);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(dt)||!br||!(o>0)) return;
+    const ot=parseN(r[ix['on time+early']]);
+    out.push({dt:dt,br:br,ar:String(r[ix['Area Name']]||'').trim()||'Unknown',o:o,
+      u15:parseN(r[ix['Orders Under 15m DT']]),u20:parseN(r[ix['Orders Under 20m DT']]),
+      ot:ot==null?null:toPct(ot),dist:parseN(r[ix['Avg. Primary Dropoff Distance Manhattan (Km)']]),
+      d:parseN(r[ix['Avg. Actual Delivery Time (Mins)']]),avtc:parseN(r[ix['Avg. At vendor time cleaned mins (AVTC)']])});
   });
+  return out;
 }
 
-function getMartRange(){
-  const yest=yesterday();
-  if(martPeriod==='day') return {from:yest,to:yest,label:'Yesterday'};
-  if(martPeriod==='week'){const d=new Date(yest+'T12:00:00');return {from:getMonday(d),to:getSunday(d),label:'Week of '+getMonday(d)};}
-  if(martPeriod==='month'){const d=new Date(yest+'T12:00:00');const ms=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';const me=toYMD(new Date(d.getFullYear(),d.getMonth()+1,0));return {from:ms,to:me,label:monthLabel(yest.slice(0,7))};}
-  return {from:yest,to:yest,label:'Yesterday'};
+function martAdd(s,n){const d=new Date(s+'T12:00:00');d.setDate(d.getDate()+n);return toYMD(d);}
+
+function martPeriodRanges(last){
+  const d=new Date(last+'T12:00:00'), y=d.getFullYear(), m=d.getMonth();
+  return {
+    d1:{from:last,to:last,days:1},
+    l3d:{from:martAdd(last,-2),to:last,days:3},
+    l7d:{from:martAdd(last,-6),to:last,days:7},
+    l14d:{from:martAdd(last,-13),to:last,days:14},
+    mtd:{from:toYMD(new Date(y,m,1)),to:last,days:d.getDate()},
+    lm:{from:toYMD(new Date(y,m-1,1)),to:toYMD(new Date(y,m,0)),days:new Date(y,m,0).getDate()}
+  };
+}
+
+function martSetData(list){
+  martRows=list;martCache={};martByDate=new Map();martLast='';martFirst='';martFrom='';martTo='';martOpen=new Set();
+  const names=new Set();
+  list.forEach(function(r){
+    let a=martByDate.get(r.dt);
+    if(!a){a=[];martByDate.set(r.dt,a);}
+    a.push(r);
+    names.add(r.br);
+    if(r.dt>martLast) martLast=r.dt;
+    if(!martFirst||r.dt<martFirst) martFirst=r.dt;
+  });
+  martBranchList=[...names].sort();
+  martPeriods=martLast?martPeriodRanges(martLast):{};
+  martVis={rates:null,orders:null};
+  martSeriesList=[{k:'*',n:'Alexandria'}].concat(
+    martBranchList.filter(martIsAgamy).map(function(b){return {k:b,n:martShort(b)};}),
+    martBranchList.filter(function(b){return !martIsAgamy(b);}).map(function(b){return {k:b,n:martShort(b)};}));
+}
+
+function martRowsIn(from,to){
+  const out=[];
+  if(from<martFirst) from=martFirst;
+  if(to>martLast) to=martLast;
+  for(let s=from;s<=to;s=martAdd(s,1)){
+    const a=martByDate.get(s);
+    if(a) for(let i=0;i<a.length;i++) out.push(a[i]);
+  }
+  return out;
+}
+
+const MART_W=['d','ot','dist','avtc'];
+function martAgg(list){
+  const t={o:0,u15:0,u15o:0,u20:0,u20o:0,w:{d:[0,0],ot:[0,0],dist:[0,0],avtc:[0,0]},ar:new Set()};
+  for(let i=0;i<list.length;i++){
+    const r=list[i];
+    t.o+=r.o;t.ar.add(r.ar);
+    if(r.u15!=null){t.u15+=r.u15;t.u15o+=r.o;}
+    if(r.u20!=null){t.u20+=r.u20;t.u20o+=r.o;}
+    for(let j=0;j<MART_W.length;j++){
+      const x=r[MART_W[j]];
+      if(x!=null){t.w[MART_W[j]][0]+=x*r.o;t.w[MART_W[j]][1]+=r.o;}
+    }
+  }
+  return t;
+}
+
+function martVals(t,days){
+  if(!t||!t.o) return null;
+  const g=function(k){return t.w[k][1]?t.w[k][0]/t.w[k][1]:null;};
+  return {o:t.o/days,tot:t.o,days:days,d:g('d'),ot:g('ot'),u15:t.u15o?t.u15/t.u15o*100:null,u20:t.u20o?t.u20/t.u20o*100:null,dist:g('dist'),avtc:g('avtc'),areas:t.ar.size};
+}
+
+function martPeriodData(p){
+  if(martCache[p]) return martCache[p];
+  const pr=martPeriods[p], list=martRowsIn(pr.from,pr.to), byB=new Map();
+  martBranchList.forEach(function(b){byB.set(b,[]);});
+  list.forEach(function(r){byB.get(r.br).push(r);});
+  const res={all:martVals(martAgg(list),pr.days),alex:martVals(martAgg(list.filter(function(r){return !martIsAgamy(r.br);})),pr.days),b:{},a:{}};
+  martBranchList.forEach(function(b,i){
+    const rs=byB.get(b), ba=new Map();
+    res.b[i]=martVals(martAgg(rs),pr.days);
+    rs.forEach(function(r){let x=ba.get(r.ar);if(!x){x=[];ba.set(r.ar,x);}x.push(r);});
+    res.a[i]=[...ba.entries()].map(function(e){return {n:e[0],v:martVals(martAgg(e[1]),pr.days)};});
+  });
+  martCache[p]=res;
+  return res;
+}
+
+function martTrend(i,k){
+  const out=[], b=martBranchList[i];
+  for(let s=martAdd(martLast,-13);s<=martLast;s=martAdd(s,1)){
+    const rs=(martByDate.get(s)||[]).filter(function(r){return r.br===b;});
+    const v=martVals(martAgg(rs),1);
+    out.push(v?v[k]:null);
+  }
+  return out;
+}
+
+function martFmt(k,v){
+  if(v==null) return '—';
+  if(k==='o') return Math.round(v).toLocaleString();
+  if(k==='d'||k==='dist') return v.toFixed(1);
+  if(k==='avtc') return v.toFixed(2);
+  return v.toFixed(1)+'%';
+}
+function martSt(k,v){
+  if(v==null) return '';
+  if(k==='d') return v<=20?'g':v<=25?'w':'r';
+  if(k==='ot') return v>=85?'g':v>=75?'w':'r';
+  if(k==='u15') return v>=60?'g':v>=45?'w':'r';
+  if(k==='u20') return v>=80?'g':v>=65?'w':'r';
+  if(k==='dist') return v<=2?'g':v<=3?'w':'r';
+  if(k==='avtc') return v<=2.5?'g':v<=3?'w':'r';
+  return '';
+}
+function martChip(k,v){const s=martSt(k,v);return s?'<span class="tag '+s+'">'+martFmt(k,v)+'</span>':martFmt(k,v);}
+function martShort(n){return n.replace(/^(talabat mart|tmart),\s*/i,'');}
+function martIsAgamy(n){return /agam/i.test(n);} // Agamy branches are listed under the total, not inside it
+
+function martSpark(a){
+  const pts=[];
+  a.forEach(function(v,i){if(v!=null) pts.push([i,v]);});
+  if(pts.length<2) return '';
+  const w=70,h=22,vs=pts.map(function(p){return p[1];}),mx=Math.max.apply(null,vs),mn=Math.min.apply(null,vs),r=(mx-mn)||1;
+  const xy=pts.map(function(p){return [2+p[0]*(w-4)/(a.length-1),h-3-(p[1]-mn)/r*(h-6)];});
+  const l=xy[xy.length-1];
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'" style="vertical-align:middle"><polyline points="'+xy.map(function(p){return p[0].toFixed(1)+','+p[1].toFixed(1);}).join(' ')+'" fill="none" stroke="#94a3b8" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/><circle cx="'+l[0].toFixed(1)+'" cy="'+l[1].toFixed(1)+'" r="2.5" fill="#ff5722"/></svg>';
+}
+
+function martCells(v,denom){
+  if(!v) return '<td colspan="7" style="color:var(--muted)">No data</td>';
+  return '<td title="Total '+Math.round(v.tot).toLocaleString()+' orders in '+v.days+(v.days>1?' days':' day')+'" style="font-weight:600">'+Math.round(v.o).toLocaleString()+'<div class="mt-sub">'+(denom?(v.tot/denom*100).toFixed(1)+'%':'')+'</div></td>'
+    +'<td>'+martChip('d',v.d)+'</td><td>'+martChip('ot',v.ot)+'</td><td>'+martChip('u15',v.u15)+'</td><td>'+martChip('u20',v.u20)+'</td><td>'+martChip('dist',v.dist)+'</td><td>'+martChip('avtc',v.avtc)+'</td>';
+}
+
+function martSet(k,v){
+  if(k==='mode') martMode=v;
+  else if(k==='per'){martPer=v;martFrom='';martTo='';martRangeSync();}
+  else if(k==='tn'){martTrendN=v;martFrom='';martTo='';martRangeSync();if(martPer==='custom') martPer='d1';}
+  else if(k==='met') martMet=v;
+  renderMartBody();
+}
+// custom day / range filter: one valid range at a time, used as the "custom" period (Summary) and as the chart range (Daily trend)
+function martRangeSync(){
+  delete martCache.custom;
+  if(!martFrom||!martTo||!martLast){delete martPeriods.custom;return;}
+  const cf=martFrom<martFirst?martFirst:martFrom, ct=martTo>martLast?martLast:martTo;
+  martPeriods.custom={from:martFrom,to:martTo,days:cf>ct?0:Math.round((new Date(ct+'T12:00:00')-new Date(cf+'T12:00:00'))/86400000)+1};
+}
+function martDate(which,v){
+  if(!v){martFrom='';martTo='';}
+  else if(which==='from'){martFrom=v;if(!martTo||martTo<v) martTo=v;}
+  else{martTo=v;if(!martFrom||martFrom>v) martFrom=v;}
+  martRangeSync();
+  if(martPeriods.custom) martPer='custom'; else if(martPer==='custom') martPer='d1';
+  renderMartBody();
+}
+function martClearRange(){
+  martFrom='';martTo='';martRangeSync();
+  if(martPer==='custom') martPer='d1';
+  renderMartBody();
+}
+function martToggle(i){
+  if(martOpen.has(i)) martOpen.delete(i); else martOpen.add(i);
+  renderMartBody();
+}
+function martSort(k){
+  if(martSortK===k) martSortDir=-martSortDir; else {martSortK=k;martSortDir=k==='n'?1:-1;}
+  renderMartBody();
+}
+
+function martKpisHtml(){
+  const cur=martPeriodData(martPer).all, base=martPeriodData('lm').all;
+  if(!cur) return '';
+  return '<div class="mt-sub" style="margin:0 0 6px">Total: Alexandria + Agamy (listed separately in the table below)</div><div class="kpi-grid">'+MART_METRICS.map(function(m){
+    const k=m[0], v=cur[k], b=base?base[k]:null;
+    let dl='', cls='';
+    if(martPer!=='lm'&&v!=null&&b!=null&&b!==0){
+      const df=k==='o'?(v/b-1)*100:v-b, up=df>=0, lowGood=(k==='d'||k==='avtc'||k==='dist'), good=lowGood?!up:up;
+      dl=(up?'↑ ':'↓ ')+Math.abs(df).toFixed(1)+(k==='o'?'%':k==='dist'?' km':lowGood?' min':' pp')+' vs last month';
+      cls=good?'up':'dn';
+    }
+    return '<div class="kpi"><div class="kpi-lbl">'+m[1]+'</div><div class="kpi-val">'+martFmt(k,v)+'</div>'+(dl?'<div class="kpi-d '+cls+'">'+dl+'</div>':'')+'</div>';
+  }).join('')+'</div>';
+}
+
+function martNameCell(i,areas,op){
+  return '<td title="'+esc(martBranchList[i])+'"><span class="mt-car">'+(op?'▾':'▸')+'</span><strong>'+esc(martShort(martBranchList[i]))+'</strong>'+(areas?'<div class="mt-sub" style="padding-left:12px">'+areas+' areas</div>':'')+'</td>';
+}
+
+function martSumHtml(){
+  const P=martPeriodData(martPer), alex=P.alex;
+  const cols=[['n','Branch'],['o','Orders / day'],['d','DT (min)'],['ot','On time + early'],['u15','&lt; 15 min'],['u20','&lt; 20 min'],['dist','Distance (km)'],['avtc','AVTC (min)'],['t','Trend']];
+  let h='<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap" style="border:none"><table class="mt-tbl"><thead><tr>';
+  cols.forEach(function(c){
+    h+=c[0]==='t'?'<th title="Orders per day, last 14 days">'+c[1]+'</th>':'<th class="mt-th" onclick="martSort(\''+c[0]+'\')">'+c[1]+(martSortK===c[0]?(martSortDir<0?' ↓':' ↑'):'')+'</th>';
+  });
+  h+='</tr></thead><tbody>';
+  const idx=martBranchList.map(function(b,i){return i;});
+  idx.sort(function(x,y){
+    if(martSortK==='n') return martBranchList[x].localeCompare(martBranchList[y])*martSortDir;
+    const a=P.b[x]?P.b[x][martSortK]:null, b=P.b[y]?P.b[y][martSortK]:null;
+    if(a==null&&b==null) return 0;
+    if(a==null) return 1;
+    if(b==null) return -1;
+    return (a-b)*martSortDir;
+  });
+  function branchRows(i,denom){
+    const v=P.b[i], op=martOpen.has(i);
+    let s='<tr class="mt-br" onclick="martToggle('+i+')">'+martNameCell(i,v?v.areas:0,op)+martCells(v,denom)+'<td>'+martSpark(martTrend(i,'o'))+'</td></tr>';
+    if(op&&v) P.a[i].slice().sort(function(a,b){return b.v.tot-a.v.tot;}).forEach(function(a){
+      s+='<tr class="mt-ar"><td style="padding-left:36px">'+esc(a.n)+'</td>'+martCells(a.v,v.tot)+'<td></td></tr>';
+    });
+    return s;
+  }
+  idx.filter(function(i){return !martIsAgamy(martBranchList[i]);}).forEach(function(i){h+=branchRows(i,alex?alex.tot:0);});
+  h+='<tr style="font-weight:700;background:#f8fafc"><td>Alexandria'+(alex?'<div class="mt-sub">'+alex.areas+' areas</div>':'')+'</td>'+martCells(alex,alex?alex.tot:0)+'<td></td></tr>';
+  idx.filter(function(i){return martIsAgamy(martBranchList[i]);}).forEach(function(i){h+=branchRows(i,0);});
+  return h+'</tbody></table></div></div>';
+}
+
+function martDestroyChart(){if(martChartInst){martChartInst.destroy();martChartInst=null;}}
+
+// which series are drawn: rates -> Alexandria total + Agamy; orders -> every branch (the total would flatten them)
+function martVisSet(){
+  const fam=martMet==='o'?'orders':'rates';
+  if(!martVis[fam]){
+    martVis[fam]=new Set();
+    martSeriesList.forEach(function(se,i){
+      if(fam==='orders'?se.k!=='*':(se.k==='*'||martIsAgamy(se.k))) martVis[fam].add(i);
+    });
+  }
+  return martVis[fam];
+}
+function martToggleSeries(i){
+  const s=martVisSet();
+  if(s.has(i)){if(s.size>1) s.delete(i);} else s.add(i);
+  renderMartBody();
+}
+
+function martTrendRange(){
+  const pr=martPeriods.custom;
+  let from=pr?pr.from:martAdd(martLast,-(martTrendN-1)), to=pr?pr.to:martLast;
+  if(from<martFirst) from=martFirst;
+  if(to>martLast) to=martLast;
+  return {from:from,to:to};
+}
+
+// one value set per day and series (Alexandria total = every branch except Agamy), same weighted maths as the other views
+function martDaily(from,to){
+  const days=[], sers=martSeriesList.map(function(){return [];});
+  for(let s=from;s<=to;s=martAdd(s,1)){
+    days.push(s);
+    const rs=martByDate.get(s)||[];
+    martSeriesList.forEach(function(se,i){
+      const sub=se.k==='*'?rs.filter(function(r){return !martIsAgamy(r.br);}):rs.filter(function(r){return r.br===se.k;});
+      sers[i].push(martVals(martAgg(sub),1));
+    });
+  }
+  return {days:days,sers:sers};
+}
+
+function martGridHtml(D){
+  const k=martMet, vis=martVisSet(), nd=Math.min(7,D.days.length), off=D.days.length-nd;
+  let h='<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap" style="border:none"><table class="mt-tbl"><thead><tr><th>Branch</th>'
+    +D.days.slice(off).map(function(d){return '<th>'+d.slice(5)+'<div class="mt-sub">'+new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'})+'</div></th>';}).join('')+'</tr></thead><tbody>';
+  function row(i,total){
+    return '<tr'+(total?' style="font-weight:700;background:#f8fafc"':'')+'><td><span class="mt-sw" style="background:'+(vis.has(i)?MART_COL[i%MART_COL.length]:'transparent')+';margin-right:6px"></span>'+esc(martSeriesList[i].n)+'</td>'
+      +D.sers[i].slice(off).map(function(v){return '<td>'+martChip(k,v?v[k]:null)+'</td>';}).join('')+'</tr>';
+  }
+  const lastO=function(i){const a=D.sers[i];for(let j=a.length-1;j>=0;j--) if(a[j]) return a[j].o;return 0;};
+  const idx=martSeriesList.map(function(s,i){return i;});
+  idx.filter(function(i){const s=martSeriesList[i];return s.k!=='*'&&!martIsAgamy(s.k);}).sort(function(x,y){return lastO(y)-lastO(x);}).forEach(function(i){h+=row(i,false);});
+  h+=row(0,true);
+  idx.filter(function(i){const s=martSeriesList[i];return s.k!=='*'&&martIsAgamy(s.k);}).forEach(function(i){h+=row(i,false);});
+  return h+'</tbody></table></div></div>';
+}
+
+function martTrendHtml(){
+  const R=martTrendRange();
+  if(R.from>R.to){martTrendData=null;return '<div class="empty"><div class="empty-icon">📈</div><div>No data in this range</div></div>';}
+  const D=martDaily(R.from,R.to), vis=martVisSet(), k=martMet;
+  martTrendData=D;
+  const last=function(a){for(let i=a.length-1;i>=0;i--) if(a[i]) return a[i][k];return null;};
+  return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px">'+martSeriesList.map(function(se,i){
+      return '<button class="mt-chip'+(vis.has(i)?'':' off')+'" onclick="martToggleSeries('+i+')"><span class="mt-sw" style="background:'+MART_COL[i%MART_COL.length]+'"></span>'+esc(se.n)+' <span style="color:var(--muted)">'+martFmt(k,last(D.sers[i]))+'</span></button>';
+    }).join('')+'</div>'
+    +'<div class="mt-sub" style="min-height:14px;margin:0 0 8px">'+(k==='o'?'Orders: the Alexandria total is off by default because its scale hides the branches.':'')+'</div>'
+    +'<div class="card"><div style="position:relative;height:300px"><canvas id="mart-chart"></canvas></div></div>'
+    +martGridHtml(D);
+}
+
+function martTrendDraw(){
+  const cv=document.getElementById('mart-chart'), D=martTrendData;
+  if(!cv||!D) return;
+  const vis=martVisSet(), k=martMet, n=D.days.length;
+  const cross={id:'martCross',afterDatasetsDraw:function(c){
+    const a=c.tooltip&&c.tooltip._active;
+    if(a&&a.length){const x=a[0].element.x,ca=c.chartArea,g=c.ctx;g.save();g.beginPath();g.moveTo(x,ca.top);g.lineTo(x,ca.bottom);g.lineWidth=1;g.strokeStyle='#cbd5e1';g.stroke();g.restore();}
+  }};
+  const sets=[];
+  martSeriesList.forEach(function(se,i){
+    if(!vis.has(i)) return;
+    const col=MART_COL[i%MART_COL.length];
+    sets.push({label:se.n,data:D.sers[i].map(function(v){return v?v[k]:null;}),borderColor:col,backgroundColor:col,borderWidth:2,tension:0,spanGaps:false,
+      pointRadius:function(c){return c.dataIndex===n-1?4:0;},pointHoverRadius:5,pointBackgroundColor:col,pointBorderColor:'#fff',pointBorderWidth:2,borderJoinStyle:'round',borderCapStyle:'round'});
+  });
+  martChartInst=new Chart(cv,{type:'line',data:{labels:D.days.map(function(d){return d.slice(5);}),datasets:sets},plugins:[cross],options:{
+    responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:{display:false},datalabels:{display:false},tooltip:{itemSort:function(a,b){return (b.parsed.y||0)-(a.parsed.y||0);},callbacks:{title:function(t){return D.days[t[0].dataIndex];},label:function(c){return c.dataset.label+': '+martFmt(k,c.parsed.y);}}}},
+    scales:{
+      x:{grid:{display:false},border:{color:'#cbd5e1'},ticks:{color:'#64748b',font:{size:10},maxTicksLimit:10,maxRotation:0}},
+      y:{beginAtZero:k==='o',grid:{color:'#e2e8f0',lineWidth:1},border:{display:false},ticks:{color:'#64748b',font:{size:10},maxTicksLimit:6,callback:function(v){return k==='o'?(v>=1000?(Math.round(v/100)/10)+'K':v):(k==='d'||k==='dist'||k==='avtc')?Math.round(v*10)/10:Math.round(v)+'%';}}}
+    }}});
+}
+
+function renderMartBody(){
+  martDestroyChart();
+  const body=document.getElementById('mart-body');
+  if(!martRows.length){body.innerHTML='<div class="empty"><div class="empty-icon">🛒</div><div>No Mart data</div></div>';return;}
+  if(martPer==='custom'&&!martPeriods.custom) martPer='d1';
+  function sbtn(l,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
+  const grp='<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border);flex-wrap:wrap">';
+  const lbl='<span style="font-size:11px;color:var(--muted)">';
+  let c='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
+    +grp+sbtn('Summary',martMode==='sum',"martSet('mode','sum')")+sbtn('Daily trend',martMode==='trend',"martSet('mode','trend')")+'</div>';
+  if(martMode==='sum'){
+    const r=martPeriods[martPer];
+    c+=grp+MART_SUM_PERIODS.map(function(p){return sbtn(p[1],martPer===p[0],"martSet('per','"+p[0]+"')");}).join('')+'</div>'
+      +lbl+(r.from===r.to?r.from:r.from+' → '+r.to)+'</span>';
+  }else{
+    const R=martTrendRange();
+    c+=grp+MART_METRICS.map(function(m){return sbtn(m[1],martMet===m[0],"martSet('met','"+m[0]+"')");}).join('')+'</div>'
+      +grp+[[7,'7 days'],[14,'14 days'],[30,'30 days']].map(function(p){return sbtn(p[1],!martPeriods.custom&&martTrendN===p[0],"martSet('tn',"+p[0]+")");}).join('')+'</div>'
+      +lbl+(R.from>R.to?'No data in this range':(R.from===R.to?R.from:R.from+' → '+R.to))+'</span>';
+  }
+  const di='class="mt-date" min="'+martFirst+'" max="'+martLast+'"';
+  c+='<div style="display:flex;align-items:center;gap:6px;margin-left:auto">'
+    +lbl+'From</span><input type="date" '+di+' value="'+martFrom+'" onchange="martDate(\'from\',this.value)">'
+    +lbl+'To</span><input type="date" '+di+' value="'+martTo+'" onchange="martDate(\'to\',this.value)">'
+    +(martFrom?sbtn('Clear',false,'martClearRange()'):'')+'</div></div>';
+  body.innerHTML=c+(martMode==='sum'?martKpisHtml()+martSumHtml():martTrendHtml())
+    +'<div style="font-size:11px;color:var(--muted);margin-top:8px">'+(martMode==='sum'?'Click a branch to see its areas':'Click a branch name above the chart to show or hide it · hover the chart to see the numbers of a day')+'</div>';
+  if(martMode==='trend') martTrendDraw();
 }
 
 function renderMart(){
-  if(!martBranches.length){
-    Promise.all([fetchMartCSV(MART_BGID),fetchMartCSV(MART_LGID)]).then(function(results){
-      martBranches=results[0];martLooker=results[1];renderMartBody();
+  if(!martRows.length){
+    if(martLoading) return; // a request is already in flight - don't send another one
+    martLoading=true;
+    fetchMartCSV().then(function(list){
+      martSetData(list);martLoading=false;renderMartBody();
     }).catch(function(e){
-      document.getElementById('mart-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+e.message+'</div>';
+      martLoading=false;
+      document.getElementById('mart-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+esc(e.message)+'</div>';
     });
     return;
   }
   renderMartBody();
-}
-
-function aggMartBranches(rows,range){
-  const byBranch={};
-  rows.forEach(function(r){
-    const dt=r['Local Order Date']||'';
-    if(dt<range.from||dt>range.to) return;
-    const name=r['Vendor Name (English)']||'Unknown';
-    if(!byBranch[name]) byBranch[name]={name:name,orders:0,under15:0,under20:0,ontime:[],early:[],dt:[],toVendor:[],atVendor:[],toCustomer:[],vendorDelay:[],riderLate:[],avtc:[]};
-    const b=byBranch[name];
-    b.orders+=parseFloat(r['Completed Orders'])||0;
-    b.under15+=parseFloat(r['Orders Under 15m DT'])||0;
-    b.under20+=parseFloat(r['Orders Under 20m DT'])||0;
-    if(r['Order On Time %']) b.ontime.push(parseFloat(r['Order On Time %'])||0);
-    if(r['% Order Early < 10']) b.early.push(parseFloat(r['% Order Early < 10'])||0);
-    if(r['Avg. Actual Delivery Time (Mins)']) b.dt.push(parseFloat(r['Avg. Actual Delivery Time (Mins)'])||0);
-    if(r['Avg. To Vendor Time (Mins)']) b.toVendor.push(parseFloat(r['Avg. To Vendor Time (Mins)'])||0);
-    if(r['Avg. At Vendor Time (Mins)']) b.atVendor.push(parseFloat(r['Avg. At Vendor Time (Mins)'])||0);
-    if(r['Avg. To Customer Time (Mins)']) b.toCustomer.push(parseFloat(r['Avg. To Customer Time (Mins)'])||0);
-    if(r['Vendor Delay v2 >10mins percentage']) b.vendorDelay.push(parseFloat(r['Vendor Delay v2 >10mins percentage'])||0);
-    if(r['Rider Late Orders >10mins Percentage']) b.riderLate.push(parseFloat(r['Rider Late Orders >10mins Percentage'])||0);
-    if(r['Avg. At vendor time cleaned mins (AVTC)']) b.avtc.push(parseFloat(r['Avg. At vendor time cleaned mins (AVTC)'])||0);
-  });
-  return Object.values(byBranch).map(function(b){
-    function avg(arr){return arr.length?arr.reduce(function(a,x){return a+x;},0)/arr.length:0;}
-    return {name:b.name,orders:b.orders,under15Pct:b.orders>0?b.under15/b.orders:0,under20Pct:b.orders>0?b.under20/b.orders:0,ontime:avg(b.ontime),early:avg(b.early),combined:avg(b.ontime)+avg(b.early),dt:avg(b.dt),toVendor:avg(b.toVendor),atVendor:avg(b.atVendor),toCustomer:avg(b.toCustomer),vendorDelay:avg(b.vendorDelay),riderLate:avg(b.riderLate),avtc:avg(b.avtc)};
-  }).sort(function(a,b){return b.orders-a.orders;});
-}
-
-function renderMartBody(){
-  const range=getMartRange();
-  const branches=[...new Set(martBranches.map(function(r){return r['Vendor Name (English)'];}).filter(Boolean))].sort();
-  const branchData=aggMartBranches(martBranches,range);
-  const totOrders=branchData.reduce(function(a,b){return a+b.orders;},0);
-  const avgCombined=branchData.length?branchData.reduce(function(a,b){return a+b.combined;},0)/branchData.length:0;
-  const avgDT=branchData.length?branchData.reduce(function(a,b){return a+b.dt;},0)/branchData.length:0;
-  const avgU15=branchData.length?branchData.reduce(function(a,b){return a+b.under15Pct;},0)/branchData.length:0;
-  const avgU20=branchData.length?branchData.reduce(function(a,b){return a+b.under20Pct;},0)/branchData.length:0;
-
-  function tag(v,c){return '<span class="tag '+c+'">'+v+'</span>';}
-  function pct2(v){return (v*100).toFixed(1)+'%';}
-  function dec2(v){return v.toFixed(2);}
-  function sbtn(l,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
-
-  const kpisHTML='<div class="kpi-grid" style="margin-bottom:14px">'
-    +'<div class="kpi"><div class="kpi-lbl">Total Orders</div><div class="kpi-val">'+Math.round(totOrders).toLocaleString()+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">On Time + Early %</div><div class="kpi-val '+(avgCombined>=0.85?'g':avgCombined>=0.75?'w':'r')+'">'+pct2(avgCombined)+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Avg DT (min)</div><div class="kpi-val '+(avgDT<=20?'g':avgDT<=25?'w':'r')+'">'+dec2(avgDT)+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Under 15min %</div><div class="kpi-val '+(avgU15>=0.60?'g':avgU15>=0.45?'w':'r')+'">'+pct2(avgU15)+'</div></div>'
-    +'<div class="kpi"><div class="kpi-lbl">Under 20min %</div><div class="kpi-val '+(avgU20>=0.80?'g':avgU20>=0.65?'w':'r')+'">'+pct2(avgU20)+'</div></div>'
-    +'</div>';
-
-  const branchOpts='<option value="all">All Branches</option>'+branches.map(function(b){return '<option value="'+esc(b)+'" '+(martBranch===b?'selected':'')+'>'+esc(b.replace('talabat mart, ','').replace('Tmart, ',''))+'</option>';}).join('');
-
-  const controlsHTML='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
-    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
-    +sbtn('By Branch',martView==='branches',"martView='branches';renderMartBody()")
-    +sbtn('By Area',martView==='areas',"martView='areas';renderMartBody()")
-    +'</div>'
-    +'<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border)">'
-    +sbtn('Yesterday',martPeriod==='day',"martPeriod='day';renderMartBody()")
-    +sbtn('This Week',martPeriod==='week',"martPeriod='week';renderMartBody()")
-    +sbtn('This Month',martPeriod==='month',"martPeriod='month';renderMartBody()")
-    +'</div>'
-    +(martView==='areas'?'<select onchange="martBranch=this.value;renderMartBody()" style="background:var(--white);border:1px solid var(--border2);color:var(--text);padding:6px 10px;border-radius:7px;font-size:11px">'+branchOpts+'</select>':'')
-    +'<span style="font-size:11px;color:var(--muted)">'+range.label+'</span>'
-    +'</div>';
-
-  const branchRows=branchData.map(function(b){
-    const cCls=b.combined>=0.85?'g':b.combined>=0.75?'w':'r';
-    const dtCls=b.dt<=20?'g':b.dt<=25?'w':'r';
-    const u15Cls=b.under15Pct>=0.60?'g':b.under15Pct>=0.45?'w':'r';
-    const u20Cls=b.under20Pct>=0.80?'g':b.under20Pct>=0.65?'w':'r';
-    const vdCls=b.vendorDelay<=0.10?'g':b.vendorDelay<=0.15?'w':'r';
-    const rlCls=b.riderLate<=0.10?'g':b.riderLate<=0.15?'w':'r';
-    const shortName=b.name.replace('talabat mart, ','').replace('Tmart, ','');
-    return '<tr>'
-      +'<td><strong>'+esc(shortName)+'</strong></td>'
-      +'<td style="font-weight:600">'+Math.round(b.orders).toLocaleString()+'</td>'
-      +'<td>'+tag(pct2(b.combined),cCls)+'</td>'
-      +'<td>'+tag(dec2(b.dt)+' min',dtCls)+'</td>'
-      +'<td>'+tag(pct2(b.under15Pct),u15Cls)+'</td>'
-      +'<td>'+tag(pct2(b.under20Pct),u20Cls)+'</td>'
-      +'<td>'+dec2(b.toVendor)+' min</td>'
-      +'<td>'+dec2(b.atVendor)+' min</td>'
-      +'<td>'+dec2(b.toCustomer)+' min</td>'
-      +'<td>'+tag(pct2(b.vendorDelay),vdCls)+'</td>'
-      +'<td>'+tag(pct2(b.riderLate),rlCls)+'</td>'
-      +'<td>'+dec2(b.avtc)+' min</td>'
-      +'</tr>';
-  }).join('');
-
-  const branchTH='<tr><th>Branch</th><th>Orders</th><th>On Time+Early</th><th>Avg DT</th><th>Under 15m</th><th>Under 20m</th><th>To Vendor</th><th>At Vendor</th><th>To Customer</th><th>Vendor Delay</th><th>Rider Late</th><th>AVTC</th></tr>';
-  const tableHTML='<div class="card"><div class="card-hd">'+( martView==='branches'?'Branch':'Area')+' Performance <span class="card-sub">'+range.label+'</span></div>'
-    +'<div class="tbl-wrap"><table><thead>'+branchTH+'</thead><tbody>'
-    +(branchRows||'<tr><td colspan="12" style="text-align:center;color:var(--muted);padding:24px">No data</td></tr>')
-    +'</tbody></table></div></div>';
-
-  document.getElementById('mart-body').innerHTML=controlsHTML+kpisHTML+tableHTML;
 }
 
 // (variables declared at top)
