@@ -283,6 +283,9 @@ tbody tr:hover td{background:#f8fafd}
 .mt-th:hover{color:var(--orange)}
 .mt-br{cursor:pointer}
 .mt-ar td{background:#f8fafc;font-size:11px;color:var(--muted)}
+.mt-ah th{background:#eef2f7;padding-top:6px;padding-bottom:6px}
+.mt-fh{position:fixed;z-index:90;display:none;overflow:hidden;background:#eef2f7;box-shadow:0 3px 8px rgba(15,23,42,.12)}
+.mt-fh table{margin:0}
 .mt-sub{font-size:10px;color:var(--sub);font-weight:400}
 .mt-car{display:inline-block;width:12px;color:var(--muted)}
 .mt-date{background:var(--bg);border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:8px;font-size:11px;font-family:var(--font)}
@@ -442,6 +445,7 @@ tbody tr:hover td{background:#f8fafd}
   <!-- MART -->
   <div class="sec" id="sec-mart">
     <div id="mart-body"><div class="loading"><div class="spinner"></div> Loading Mart data... (can take ~20 seconds)</div></div>
+    <div id="mart-fh" class="mt-fh"></div>
   </div>
 
   <!-- TASKS -->
@@ -550,6 +554,7 @@ async function doLogin(){
       hideLogin(res.user);
       tasksLoaded=false;
       if(document.querySelector('#sec-tasks.active')) renderTasksTab();
+      loadData(); // first open: load every tab (and Mart) right after sign-in; later updates are manual (Sync now)
     }else{
       errEl.style.display='block';
       errEl.textContent=res.error||'Wrong email or password';
@@ -775,6 +780,7 @@ async function loadData(){
   const syncBtn=document.getElementById('sync-btn');
   if(syncBtn){syncBtn.disabled=true;syncBtn.textContent='⟳ Syncing...';}
   document.getElementById('sync-lbl').textContent='Loading...';
+  martPrefetch(); // Mart is the slowest request: it runs in the background while the rest loads
   try{
     const [alexRes,agamyRes,lookerRes,targetRes,agreeRes,tasksRes]=await Promise.allSettled([
       fetchKPISheet('alex'),
@@ -800,6 +806,7 @@ async function loadData(){
       ...agamyRows.map(r=>String(r['CW']||''))
     ].filter(Boolean))].sort();
     document.getElementById('sync-lbl').textContent='Synced '+new Date().toLocaleTimeString();
+    syncNote();
     if(syncBtn){syncBtn.disabled=false;syncBtn.textContent='⟳ Sync now';}
     setPeriod(currentPeriod,null);
     renderActive();
@@ -2277,10 +2284,10 @@ function renderActionLogBody(){
 }
 
 // ── TALABAT MART ──
-let martRows=[], martLoading=false;
-let martMode='sum', martPer='d1', martMet='ot', martSortK='o', martSortDir=-1;
+let martRows=[], martLoading=false, martErr='';
+let martMode='sum', martPer='d1', martMet='ot', martSortK='o', martSortDir=-1, martAreaSortK='o', martAreaSortDir=-1;
 let martOpen=new Set(), martByDate=new Map(), martBranchList=[], martLast='', martFirst='', martFrom='', martTo='', martPeriods={}, martCache={};
-let martTrendN=30, martVis={rates:null,orders:null}, martSeriesList=[], martChartInst=null, martTrendData=null;
+let martTrendN=30, martTrendW=8, martGran='d', martVis={rates:null,orders:null}, martSeriesList=[], martChartInst=null, martTrendData=null;
 
 const MART_NEED=['Local Order Date','Vendor Name (English)','Area Name','Completed Orders','Orders Under 15m DT','Orders Under 20m DT','Avg. Primary Dropoff Distance Manhattan (Km)','Avg. Actual Delivery Time (Mins)','Avg. At vendor time cleaned mins (AVTC)','on time+early'];
 const MART_SUM_PERIODS=[['d1','Yesterday'],['l3d','Last 3 days'],['l7d','Last 7 days'],['l14d','Last 14 days'],['mtd','This month'],['lm','Last month']];
@@ -2289,7 +2296,7 @@ const MART_METRICS=[['o','Orders / day'],['d','DT (min)'],['ot','On time + early
 
 // mart_looker = one row per date x branch (vendor) x area; every metric is weighted by Completed Orders
 async function fetchMartCSV(){
-  const rows=await fetchFromAPI('mart_looker',0,90000); // ~2 MB sheet (about 20 s today): the default 25 s timeout is too short
+  const rows=await fetchFromAPI('mart_looker',0,120000); // ~2 MB sheet: 13-60 s measured on 2026-10-22 (it runs in the background), the default 25 s timeout is far too short
   if(!rows.length) return [];
   const headers=rows[0].map(function(h){return String(h).trim();});
   const ix={};
@@ -2437,17 +2444,19 @@ function martSpark(a){
 function martCells(v,denom){
   if(!v) return '<td colspan="7" style="color:var(--muted)">No data</td>';
   return '<td title="Total '+Math.round(v.tot).toLocaleString()+' orders in '+v.days+(v.days>1?' days':' day')+'" style="font-weight:600">'+Math.round(v.o).toLocaleString()+'<div class="mt-sub">'+(denom?(v.tot/denom*100).toFixed(1)+'%':'')+'</div></td>'
-    +'<td>'+martChip('d',v.d)+'</td><td>'+martChip('ot',v.ot)+'</td><td>'+martChip('u15',v.u15)+'</td><td>'+martChip('u20',v.u20)+'</td><td>'+martChip('dist',v.dist)+'</td><td>'+martChip('avtc',v.avtc)+'</td>';
+    +'<td>'+martChip('dist',v.dist)+'</td><td>'+martChip('d',v.d)+'</td><td>'+martChip('ot',v.ot)+'</td><td>'+martChip('u15',v.u15)+'</td><td>'+martChip('u20',v.u20)+'</td><td>'+martChip('avtc',v.avtc)+'</td>';
 }
 
 function martSet(k,v){
   if(k==='mode') martMode=v;
   else if(k==='per'){martPer=v;martFrom='';martTo='';martRangeSync();}
   else if(k==='tn'){martTrendN=v;martFrom='';martTo='';martRangeSync();if(martPer==='custom') martPer='d1';}
+  else if(k==='tw'){martTrendW=v;martFrom='';martTo='';martRangeSync();if(martPer==='custom') martPer='d1';}
+  else if(k==='gran') martGran=v;
   else if(k==='met') martMet=v;
   renderMartBody();
 }
-// custom day / range filter: one valid range at a time, used as the "custom" period (Summary) and as the chart range (Daily trend)
+// custom day / range filter: one valid range at a time, used as the "custom" period (Summary) and as the chart range (Trend)
 function martRangeSync(){
   delete martCache.custom;
   if(!martFrom||!martTo||!martLast){delete martPeriods.custom;return;}
@@ -2475,6 +2484,10 @@ function martSort(k){
   if(martSortK===k) martSortDir=-martSortDir; else {martSortK=k;martSortDir=k==='n'?1:-1;}
   renderMartBody();
 }
+function martAreaSort(k){ // the header inside an opened branch sorts the areas only (the table header sorts the branches)
+  if(martAreaSortK===k) martAreaSortDir=-martAreaSortDir; else {martAreaSortK=k;martAreaSortDir=k==='n'?1:-1;}
+  renderMartBody();
+}
 
 function martKpisHtml(){
   const cur=martPeriodData(martPer).all, base=martPeriodData('lm').all;
@@ -2495,14 +2508,30 @@ function martNameCell(i,areas,op){
   return '<td title="'+esc(martBranchList[i])+'"><span class="mt-car">'+(op?'▾':'▸')+'</span><strong>'+esc(martShort(martBranchList[i]))+'</strong>'+(areas?'<div class="mt-sub" style="padding-left:12px">'+areas+' areas</div>':'')+'</td>';
 }
 
+const MART_COLS=[['n','Branch'],['o','Orders / day'],['dist','Distance (km)'],['d','DT (min)'],['ot','On time + early'],['u15','&lt; 15 min'],['u20','&lt; 20 min'],['avtc','AVTC (min)'],['t','Trend']];
+
+// header cells of the table (sorts the branches) and of the header inside an opened branch (sorts that branch's areas)
+function martHeadCells(areas){
+  const sk=areas?martAreaSortK:martSortK, sd=areas?martAreaSortDir:martSortDir, fn=areas?'martAreaSort':'martSort';
+  return MART_COLS.map(function(c){
+    if(c[0]==='t') return areas?'<th></th>':'<th title="Orders per day, last 14 days">'+c[1]+'</th>';
+    const first=areas&&c[0]==='n';
+    return '<th class="mt-th"'+(first?' style="padding-left:36px"':'')+' onclick="'+fn+'(\''+c[0]+'\')">'+(first?'Area':c[1])+(sk===c[0]?(sd<0?' ↓':' ↑'):'')+'</th>';
+  }).join('');
+}
+
+function martAreaCmp(a,b){
+  if(martAreaSortK==='n') return a.n.localeCompare(b.n)*martAreaSortDir;
+  const x=a.v?a.v[martAreaSortK]:null, y=b.v?b.v[martAreaSortK]:null;
+  if(x==null&&y==null) return 0;
+  if(x==null) return 1;
+  if(y==null) return -1;
+  return (x-y)*martAreaSortDir;
+}
+
 function martSumHtml(){
   const P=martPeriodData(martPer), alex=P.alex;
-  const cols=[['n','Branch'],['o','Orders / day'],['d','DT (min)'],['ot','On time + early'],['u15','&lt; 15 min'],['u20','&lt; 20 min'],['dist','Distance (km)'],['avtc','AVTC (min)'],['t','Trend']];
-  let h='<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap" style="border:none"><table class="mt-tbl"><thead><tr>';
-  cols.forEach(function(c){
-    h+=c[0]==='t'?'<th title="Orders per day, last 14 days">'+c[1]+'</th>':'<th class="mt-th" onclick="martSort(\''+c[0]+'\')">'+c[1]+(martSortK===c[0]?(martSortDir<0?' ↓':' ↑'):'')+'</th>';
-  });
-  h+='</tr></thead><tbody>';
+  let h='<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap" style="border:none"><table class="mt-tbl"><thead><tr>'+martHeadCells(false)+'</tr></thead><tbody>';
   const idx=martBranchList.map(function(b,i){return i;});
   idx.sort(function(x,y){
     if(martSortK==='n') return martBranchList[x].localeCompare(martBranchList[y])*martSortDir;
@@ -2515,9 +2544,12 @@ function martSumHtml(){
   function branchRows(i,denom){
     const v=P.b[i], op=martOpen.has(i);
     let s='<tr class="mt-br" onclick="martToggle('+i+')">'+martNameCell(i,v?v.areas:0,op)+martCells(v,denom)+'<td>'+martSpark(martTrend(i,'o'))+'</td></tr>';
-    if(op&&v) P.a[i].slice().sort(function(a,b){return b.v.tot-a.v.tot;}).forEach(function(a){
-      s+='<tr class="mt-ar"><td style="padding-left:36px">'+esc(a.n)+'</td>'+martCells(a.v,v.tot)+'<td></td></tr>';
-    });
+    if(op&&v){
+      s+='<tr class="mt-ah">'+martHeadCells(true)+'</tr>';
+      P.a[i].slice().sort(martAreaCmp).forEach(function(a){
+        s+='<tr class="mt-ar"><td style="padding-left:36px">'+esc(a.n)+'</td>'+martCells(a.v,v.tot)+'<td></td></tr>';
+      });
+    }
     return s;
   }
   idx.filter(function(i){return !martIsAgamy(martBranchList[i]);}).forEach(function(i){h+=branchRows(i,alex?alex.tot:0);});
@@ -2525,6 +2557,46 @@ function martSumHtml(){
   idx.filter(function(i){return martIsAgamy(martBranchList[i]);}).forEach(function(i){h+=branchRows(i,0);});
   return h+'</tbody></table></div></div>';
 }
+
+// header of an opened branch: while its areas scroll under the top bar, a copy of that header row (same sort buttons) stays pinned below the bar and leaves together with the branch
+let martFhRaf=0;
+function martFloatSchedule(){
+  if(martFhRaf||martMode!=='sum') return;
+  martFhRaf=requestAnimationFrame(function(){martFhRaf=0;martFloatUpdate();});
+}
+function martFloatUpdate(){
+  const fh=document.getElementById('mart-fh'), sec=document.getElementById('sec-mart');
+  if(!fh) return;
+  let pick=null;
+  if(martMode==='sum'&&sec&&sec.classList.contains('active')){
+    const nav=document.querySelector('.navwrap'), top=nav?nav.getBoundingClientRect().bottom:0, hs=document.querySelectorAll('#mart-body tr.mt-ah');
+    for(let i=0;i<hs.length&&!pick;i++){
+      const r=hs[i].getBoundingClientRect();
+      if(r.top>=top) continue; // this header is still on screen
+      let last=hs[i];
+      while(last.nextElementSibling&&last.nextElementSibling.classList.contains('mt-ar')) last=last.nextElementSibling;
+      const bottom=last.getBoundingClientRect().bottom;
+      if(bottom>top) pick={row:hs[i],top:top,bottom:bottom,h:r.height};
+    }
+  }
+  if(!pick){fh.style.display='none';return;}
+  const wrap=pick.row.closest('.tbl-wrap'), wr=wrap.getBoundingClientRect();
+  const ws=[].map.call(pick.row.children,function(c){return c.getBoundingClientRect().width;});
+  const sig=ws.map(Math.round).join(',')+'|'+martAreaSortK+martAreaSortDir;
+  if(fh._row!==pick.row||fh._sig!==sig){
+    fh._row=pick.row;fh._sig=sig;
+    fh.innerHTML='<table class="mt-tbl" style="table-layout:fixed;width:'+ws.reduce(function(s,x){return s+x;},0)+'px"><colgroup>'+ws.map(function(x){return '<col style="width:'+x+'px">';}).join('')+'</colgroup><tbody></tbody></table>';
+    fh.firstChild.tBodies[0].appendChild(pick.row.cloneNode(true));
+  }
+  fh.style.display='block';
+  fh.style.left=wr.left+'px';
+  fh.style.width=wr.width+'px';
+  fh.style.height=pick.h+'px';
+  fh.style.top=Math.min(pick.top,pick.bottom-pick.h)+'px'; // pushed up (under the bar) when the last area leaves
+  fh.firstChild.style.marginLeft=(-wrap.scrollLeft)+'px';
+}
+window.addEventListener('scroll',martFloatSchedule,{passive:true});
+window.addEventListener('resize',martFloatSchedule);
 
 function martDestroyChart(){if(martChartInst){martChartInst.destroy();martChartInst=null;}}
 
@@ -2545,35 +2617,72 @@ function martToggleSeries(i){
   renderMartBody();
 }
 
+function martWeekStart(d){
+  const w=new Date(d+'T12:00:00').getDay();
+  return martAdd(d,w===0?-6:1-w); // weeks run Monday to Sunday
+}
+
 function martTrendRange(){
   const pr=martPeriods.custom;
-  let from=pr?pr.from:martAdd(martLast,-(martTrendN-1)), to=pr?pr.to:martLast;
+  let from,to;
+  if(pr){from=pr.from;to=pr.to;}
+  else if(martGran==='w'){to=martLast;from=martAdd(martWeekStart(martLast),-7*(martTrendW-1));}
+  else{to=martLast;from=martAdd(martLast,-(martTrendN-1));}
   if(from<martFirst) from=martFirst;
   if(to>martLast) to=martLast;
   return {from:from,to:to};
 }
 
-// one value set per day and series (Alexandria total = every branch except Agamy), same weighted maths as the other views
-function martDaily(from,to){
-  const days=[], sers=martSeriesList.map(function(){return [];});
-  for(let s=from;s<=to;s=martAdd(s,1)){
-    days.push(s);
-    const rs=martByDate.get(s)||[];
-    martSeriesList.forEach(function(se,i){
-      const sub=se.k==='*'?rs.filter(function(r){return !martIsAgamy(r.br);}):rs.filter(function(r){return r.br===se.k;});
-      sers[i].push(martVals(martAgg(sub),1));
-    });
+// one value set per bucket (a day, or a Monday-Sunday week clipped to the range) and series; same weighted maths as the Summary,
+// "Orders / day" of a week = its orders / the days of that week that have data
+function martBuckets(from,to){
+  const rngs=[];
+  if(martGran==='w'){
+    for(let ws=martWeekStart(from);ws<=to;ws=martAdd(ws,7)){
+      const we=martAdd(ws,6);
+      rngs.push({from:ws<from?from:ws,to:we>to?to:we});
+    }
+  }else{
+    for(let s=from;s<=to;s=martAdd(s,1)) rngs.push({from:s,to:s});
   }
-  return {days:days,sers:sers};
+  const sers=martSeriesList.map(function(){return [];});
+  rngs.forEach(function(r){
+    const cs=r.from<martFirst?martFirst:r.from, ce=r.to>martLast?martLast:r.to;
+    r.days=cs>ce?0:Math.round((new Date(ce+'T12:00:00')-new Date(cs+'T12:00:00'))/86400000)+1;
+    const rs=r.days?martRowsIn(r.from,r.to):[];
+    martSeriesList.forEach(function(se,i){
+      const sub=se.k==='*'?rs.filter(function(x){return !martIsAgamy(x.br);}):rs.filter(function(x){return x.br===se.k;});
+      sers[i].push(r.days?martVals(martAgg(sub),r.days):null);
+    });
+  });
+  return {rngs:rngs,sers:sers};
+}
+
+function martBucketTitle(r){
+  return martGran==='w'?'Week '+r.from+' → '+r.to+' ('+r.days+(r.days>1?' days':' day')+')':r.from;
+}
+
+// change vs the previous week, coloured by whether up is good for that metric
+function martDelta(k,v,p){
+  if(v==null||p==null||(k==='o'&&!p)) return '';
+  const df=k==='o'?(v/p-1)*100:v-p, up=df>=0, lowGood=(k==='d'||k==='avtc'||k==='dist'), good=lowGood?!up:up;
+  const u=k==='o'?'%':k==='dist'?' km':lowGood?' min':' pp';
+  const col=Math.abs(df)<0.05?'var(--muted)':(good?'var(--good)':'var(--danger)');
+  return '<div class="mt-sub" style="color:'+col+'">'+(up?'↑ ':'↓ ')+Math.abs(df).toFixed(k==='dist'||k==='avtc'?2:1)+u+'</div>';
 }
 
 function martGridHtml(D){
-  const k=martMet, vis=martVisSet(), nd=Math.min(7,D.days.length), off=D.days.length-nd;
+  const k=martMet, vis=martVisSet(), w=martGran==='w', nd=Math.min(w?8:7,D.rngs.length), off=D.rngs.length-nd;
   let h='<div class="card" style="padding:0;overflow:hidden"><div class="tbl-wrap" style="border:none"><table class="mt-tbl"><thead><tr><th>Branch</th>'
-    +D.days.slice(off).map(function(d){return '<th>'+d.slice(5)+'<div class="mt-sub">'+new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'})+'</div></th>';}).join('')+'</tr></thead><tbody>';
+    +D.rngs.slice(off).map(function(r){
+      return '<th title="'+martBucketTitle(r)+'">'+r.from.slice(5)+'<div class="mt-sub">'+(w?'→ '+r.to.slice(5)+(r.days<7?' *':''):new Date(r.from+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'}))+'</div></th>';
+    }).join('')+'</tr></thead><tbody>';
   function row(i,total){
     return '<tr'+(total?' style="font-weight:700;background:#f8fafc"':'')+'><td><span class="mt-sw" style="background:'+(vis.has(i)?MART_COL[i%MART_COL.length]:'transparent')+';margin-right:6px"></span>'+esc(martSeriesList[i].n)+'</td>'
-      +D.sers[i].slice(off).map(function(v){return '<td>'+martChip(k,v?v[k]:null)+'</td>';}).join('')+'</tr>';
+      +D.sers[i].slice(off).map(function(v,j){
+        const p=w&&off+j>0?D.sers[i][off+j-1]:null;
+        return '<td'+(w&&v&&k==='o'?' title="Total '+Math.round(v.tot).toLocaleString()+' orders in '+v.days+(v.days>1?' days':' day')+'"':'')+'>'+martChip(k,v?v[k]:null)+(w?martDelta(k,v?v[k]:null,p?p[k]:null):'')+'</td>';
+      }).join('')+'</tr>';
   }
   const lastO=function(i){const a=D.sers[i];for(let j=a.length-1;j>=0;j--) if(a[j]) return a[j].o;return 0;};
   const idx=martSeriesList.map(function(s,i){return i;});
@@ -2586,21 +2695,23 @@ function martGridHtml(D){
 function martTrendHtml(){
   const R=martTrendRange();
   if(R.from>R.to){martTrendData=null;return '<div class="empty"><div class="empty-icon">📈</div><div>No data in this range</div></div>';}
-  const D=martDaily(R.from,R.to), vis=martVisSet(), k=martMet;
+  const D=martBuckets(R.from,R.to), vis=martVisSet(), k=martMet;
   martTrendData=D;
   const last=function(a){for(let i=a.length-1;i>=0;i--) if(a[i]) return a[i][k];return null;};
   return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:0 0 6px">'+martSeriesList.map(function(se,i){
       return '<button class="mt-chip'+(vis.has(i)?'':' off')+'" onclick="martToggleSeries('+i+')"><span class="mt-sw" style="background:'+MART_COL[i%MART_COL.length]+'"></span>'+esc(se.n)+' <span style="color:var(--muted)">'+martFmt(k,last(D.sers[i]))+'</span></button>';
     }).join('')+'</div>'
     +'<div class="mt-sub" style="min-height:14px;margin:0 0 8px">'+(k==='o'?'Orders: the Alexandria total is off by default because its scale hides the branches.':'')+'</div>'
-    +'<div class="card"><div style="position:relative;height:300px"><canvas id="mart-chart"></canvas></div></div>'
+    +'<div class="card"><div style="position:relative;height:320px"><canvas id="mart-chart"></canvas></div></div>'
     +martGridHtml(D);
 }
 
 function martTrendDraw(){
   const cv=document.getElementById('mart-chart'), D=martTrendData;
   if(!cv||!D) return;
-  const vis=martVisSet(), k=martMet, n=D.days.length;
+  const vis=martVisSet(), k=martMet, n=D.rngs.length;
+  // value labels sit on the line: every point when they fit (half as dense with 4+ lines), otherwise every 2nd / 3rd... counted back from the latest one
+  const many=vis.size>3, slot=(k==='o'?58:46)*(many?2:1), maxLab=Math.max(many?4:6,Math.floor((cv.parentNode.clientWidth||600)/slot)), stride=Math.max(1,Math.ceil(n/maxLab));
   const cross={id:'martCross',afterDatasetsDraw:function(c){
     const a=c.tooltip&&c.tooltip._active;
     if(a&&a.length){const x=a[0].element.x,ca=c.chartArea,g=c.ctx;g.save();g.beginPath();g.moveTo(x,ca.top);g.lineTo(x,ca.bottom);g.lineWidth=1;g.strokeStyle='#cbd5e1';g.stroke();g.restore();}
@@ -2612,33 +2723,51 @@ function martTrendDraw(){
     sets.push({label:se.n,data:D.sers[i].map(function(v){return v?v[k]:null;}),borderColor:col,backgroundColor:col,borderWidth:2,tension:0,spanGaps:false,
       pointRadius:function(c){return c.dataIndex===n-1?4:0;},pointHoverRadius:5,pointBackgroundColor:col,pointBorderColor:'#fff',pointBorderWidth:2,borderJoinStyle:'round',borderCapStyle:'round'});
   });
-  martChartInst=new Chart(cv,{type:'line',data:{labels:D.days.map(function(d){return d.slice(5);}),datasets:sets},plugins:[cross],options:{
+  martChartInst=new Chart(cv,{type:'line',data:{labels:D.rngs.map(function(r){return r.from.slice(5);}),datasets:sets},plugins:[cross],options:{
     responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
-    plugins:{legend:{display:false},datalabels:{display:false},tooltip:{itemSort:function(a,b){return (b.parsed.y||0)-(a.parsed.y||0);},callbacks:{title:function(t){return D.days[t[0].dataIndex];},label:function(c){return c.dataset.label+': '+martFmt(k,c.parsed.y);}}}},
+    layout:{padding:{top:22,bottom:8,left:4,right:18}},
+    plugins:{legend:{display:false},
+      datalabels:{
+        display:function(c){const v=c.dataset.data[c.dataIndex];return v!=null&&(n-1-c.dataIndex)%stride===0?'auto':false;},
+        align:function(c){
+          const vals=c.chart.data.datasets.map(function(d,j){return {v:d.data[c.dataIndex],j:j};}).filter(function(x){return x.v!=null;});
+          if(vals.length<2) return 'top';
+          vals.sort(function(a,b){return b.v-a.v||a.j-b.j;});
+          const r=vals.findIndex(function(x){return x.j===c.datasetIndex;});
+          return r===0?'top':(r===vals.length-1?'bottom':(c.dataIndex===n-1?'left':'right'));
+        },
+        anchor:'center',offset:7,clip:false,
+        color:'#0f172a',backgroundColor:'rgba(255,255,255,.9)',
+        borderColor:function(c){return c.dataset.borderColor;},borderWidth:1,borderRadius:4,
+        padding:{top:1,bottom:1,left:3,right:3},font:{size:10,weight:'600'},
+        formatter:function(v){return martFmt(k,v);}
+      },
+      tooltip:{itemSort:function(a,b){return (b.parsed.y||0)-(a.parsed.y||0);},callbacks:{title:function(t){return martBucketTitle(D.rngs[t[0].dataIndex]);},label:function(c){return c.dataset.label+': '+martFmt(k,c.parsed.y);}}}},
     scales:{
       x:{grid:{display:false},border:{color:'#cbd5e1'},ticks:{color:'#64748b',font:{size:10},maxTicksLimit:10,maxRotation:0}},
-      y:{beginAtZero:k==='o',grid:{color:'#e2e8f0',lineWidth:1},border:{display:false},ticks:{color:'#64748b',font:{size:10},maxTicksLimit:6,callback:function(v){return k==='o'?(v>=1000?(Math.round(v/100)/10)+'K':v):(k==='d'||k==='dist'||k==='avtc')?Math.round(v*10)/10:Math.round(v)+'%';}}}
+      y:{beginAtZero:k==='o',grace:'12%',grid:{color:'#e2e8f0',lineWidth:1},border:{display:false},ticks:{color:'#64748b',font:{size:10},maxTicksLimit:6,callback:function(v){return k==='o'?(v>=1000?(Math.round(v/100)/10)+'K':v):(k==='d'||k==='dist'||k==='avtc')?Math.round(v*10)/10:Math.round(v)+'%';}}}
     }}});
 }
 
 function renderMartBody(){
   martDestroyChart();
   const body=document.getElementById('mart-body');
-  if(!martRows.length){body.innerHTML='<div class="empty"><div class="empty-icon">🛒</div><div>No Mart data</div></div>';return;}
+  if(!martRows.length){body.innerHTML='<div class="empty"><div class="empty-icon">🛒</div><div>No Mart data</div></div>';martFloatUpdate();return;}
   if(martPer==='custom'&&!martPeriods.custom) martPer='d1';
   function sbtn(l,active,oc){return '<button class="stab '+(active?'active':'')+'" onclick="'+oc+'">'+l+'</button>';}
   const grp='<div style="display:flex;gap:3px;background:var(--bg);padding:3px;border-radius:8px;border:1px solid var(--border);flex-wrap:wrap">';
   const lbl='<span style="font-size:11px;color:var(--muted)">';
   let c='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;background:var(--white);border:1px solid var(--border);border-radius:10px;padding:10px 14px">'
-    +grp+sbtn('Summary',martMode==='sum',"martSet('mode','sum')")+sbtn('Daily trend',martMode==='trend',"martSet('mode','trend')")+'</div>';
+    +grp+sbtn('Summary',martMode==='sum',"martSet('mode','sum')")+sbtn('Trend',martMode==='trend',"martSet('mode','trend')")+'</div>';
   if(martMode==='sum'){
     const r=martPeriods[martPer];
     c+=grp+MART_SUM_PERIODS.map(function(p){return sbtn(p[1],martPer===p[0],"martSet('per','"+p[0]+"')");}).join('')+'</div>'
       +lbl+(r.from===r.to?r.from:r.from+' → '+r.to)+'</span>';
   }else{
-    const R=martTrendRange();
-    c+=grp+MART_METRICS.map(function(m){return sbtn(m[1],martMet===m[0],"martSet('met','"+m[0]+"')");}).join('')+'</div>'
-      +grp+[[7,'7 days'],[14,'14 days'],[30,'30 days']].map(function(p){return sbtn(p[1],!martPeriods.custom&&martTrendN===p[0],"martSet('tn',"+p[0]+")");}).join('')+'</div>'
+    const R=martTrendRange(), w=martGran==='w';
+    c+=grp+sbtn('Daily',!w,"martSet('gran','d')")+sbtn('Weekly',w,"martSet('gran','w')")+'</div>'
+      +grp+MART_METRICS.map(function(m){return sbtn(m[1],martMet===m[0],"martSet('met','"+m[0]+"')");}).join('')+'</div>'
+      +grp+(w?[[4,'4 weeks'],[8,'8 weeks'],[12,'12 weeks']]:[[7,'7 days'],[14,'14 days'],[30,'30 days']]).map(function(p){return sbtn(p[1],!martPeriods.custom&&(w?martTrendW:martTrendN)===p[0],"martSet('"+(w?'tw':'tn')+"',"+p[0]+")");}).join('')+'</div>'
       +lbl+(R.from>R.to?'No data in this range':(R.from===R.to?R.from:R.from+' → '+R.to))+'</span>';
   }
   const di='class="mt-date" min="'+martFirst+'" max="'+martLast+'"';
@@ -2647,23 +2776,62 @@ function renderMartBody(){
     +lbl+'To</span><input type="date" '+di+' value="'+martTo+'" onchange="martDate(\'to\',this.value)">'
     +(martFrom?sbtn('Clear',false,'martClearRange()'):'')+'</div></div>';
   body.innerHTML=c+(martMode==='sum'?martKpisHtml()+martSumHtml():martTrendHtml())
-    +'<div style="font-size:11px;color:var(--muted);margin-top:8px">'+(martMode==='sum'?'Click a branch to see its areas':'Click a branch name above the chart to show or hide it · hover the chart to see the numbers of a day')+'</div>';
+    +'<div style="font-size:11px;color:var(--muted);margin-top:8px">'+(martMode==='sum'?'Click a branch to see its areas · the header inside an opened branch sorts its areas':'Click a branch name above the chart to show or hide it'+(martGran==='w'?' · weeks run Monday to Sunday (* = partial week) · the small number under each value is the change vs the previous week · Orders are per-day averages (hover a value for the week total)':''))+'</div>';
   if(martMode==='trend') martTrendDraw();
+  else{
+    const tw=body.querySelector('.tbl-wrap');
+    if(tw) tw.addEventListener('scroll',martFloatSchedule,{passive:true}); // keeps the pinned header in step with a sideways scroll
+  }
+  martFloatUpdate();
+}
+
+// Mart is the slowest request (~20 s): every Sync starts it too and it finishes in the background, so the tab is usually ready when it is opened.
+// Only one request at a time; opening the tab while it runs just waits for it.
+function martPrefetch(){setTimeout(martLoad,1000);} // 1 s after the other requests, so they are not slowed down by it
+function martTabOpen(){const s=document.getElementById('sec-mart');return !!(s&&s.classList.contains('active'));}
+
+function martLoad(){
+  if(martLoading) return;
+  martLoading=true;martErr='';
+  syncNote();
+  fetchMartCSV().then(function(list){
+    martLoading=false;
+    if(list.length||!martRows.length) martApply(list); // an empty answer never wipes data that is already on screen
+  }).catch(function(e){
+    martLoading=false;
+    if(martRows.length) console.warn('Mart refresh failed:',e.message); else martErr=e.message||'Request failed';
+  }).then(function(){
+    syncNote();
+    if(!martTabOpen()) return;
+    if(martRows.length) renderMartBody(); else martShowError();
+  });
+}
+
+// a refresh keeps what he had open: branches, date range, hidden chart lines
+function martApply(list){
+  const had=martRows.length>0, open=[...martOpen].map(function(i){return martBranchList[i];}), from=martFrom, to=martTo, vis=martVis, sig=martSeriesList.map(function(s){return s.k;}).join('|');
+  martSetData(list);
+  if(!had) return;
+  martOpen=new Set(open.map(function(n){return martBranchList.indexOf(n);}).filter(function(i){return i>=0;}));
+  if(from&&to){martFrom=from;martTo=to;martRangeSync();if(!martPeriods.custom){martFrom='';martTo='';}}
+  if(martSeriesList.map(function(s){return s.k;}).join('|')===sig) martVis=vis;
+}
+
+function martShowLoading(){document.getElementById('mart-body').innerHTML='<div class="loading"><div class="spinner"></div> Loading Mart data... (can take ~20 seconds)</div>';}
+function martShowError(){document.getElementById('mart-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+esc(martErr)+' <button class="stab" onclick="renderMart()">Retry</button></div>';}
+
+// sync label: "Synced 14:02:11 · Mart loading..." until the Mart request is done
+function syncNote(){
+  const el=document.getElementById('sync-lbl');
+  if(!el) return;
+  const t=el.textContent.replace(/ · Mart.*$/,'');
+  if(/^Synced/.test(t)) el.textContent=t+(martLoading?' · Mart loading...':(!martRows.length&&martErr?' · Mart failed':''));
 }
 
 function renderMart(){
-  if(!martRows.length){
-    if(martLoading) return; // a request is already in flight - don't send another one
-    martLoading=true;
-    fetchMartCSV().then(function(list){
-      martSetData(list);martLoading=false;renderMartBody();
-    }).catch(function(e){
-      martLoading=false;
-      document.getElementById('mart-body').innerHTML='<div class="loading" style="color:var(--danger)">⚠ Error: '+esc(e.message)+'</div>';
-    });
-    return;
-  }
-  renderMartBody();
+  if(martRows.length){renderMartBody();return;}
+  if(!martLoading) martLoad(); // nothing loaded and nothing running (e.g. the last try failed): start it now
+  martShowLoading();
 }
 
 // (variables declared at top)
@@ -2674,6 +2842,7 @@ function renderMart(){
     showLogin();
   }else{
     hideLogin(currentUser);
+    loadData(); // first open: load every tab (and Mart) automatically; later updates are manual (Sync now)
   }
   const badge=document.getElementById('tbadge');
   if(badge&&tasks.length) badge.textContent=tasks.length;
